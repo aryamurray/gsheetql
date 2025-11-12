@@ -63,6 +63,7 @@ Working towards MVP: HTTP-callable SQL interface with table creation support. Fo
 ## ✅ Build & Deployment Complete
 
 **Build Pipeline**
+
 - ✅ TypeScript compilation (strict mode, `npx tsc --noEmit`)
 - ✅ ESLint linting passes (`bun run lint`)
 - ✅ esbuild bundling to dist/Code.js
@@ -71,6 +72,7 @@ Working towards MVP: HTTP-callable SQL interface with table creation support. Fo
 - ✅ clasp deploy succeeded
 
 **Live Deployment**
+
 - Deployment ID: `AKfycbywV0663jtV_uSCoPh4O7CJhqmmcxGoHeO-re_jHRRg6dfcvsl074SKk1tVnAorjht4`
 - Web App URL: `https://script.google.com/macros/s/AKfycbywV0663jtV_uSCoPh4O7CJhqmmcxGoHeO-re_jHRRg6dfcvsl074SKk1tVnAorjht4/exec`
 - Status: Ready for testing

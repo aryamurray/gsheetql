@@ -75,21 +75,15 @@ export class TypeConverter {
 
     switch (targetType) {
       case "INTEGER":
-        if (typeof value === "number")
-          return Math.floor(value);
-        if (typeof value === "string")
-          return Number.parseInt(value, 10);
-        if (typeof value === "boolean")
-          return value ? 1 : 0;
+        if (typeof value === "number") return Math.floor(value);
+        if (typeof value === "string") return Number.parseInt(value, 10);
+        if (typeof value === "boolean") return value ? 1 : 0;
         return Number.NaN;
 
       case "REAL":
-        if (typeof value === "number")
-          return value;
-        if (typeof value === "string")
-          return Number.parseFloat(value);
-        if (typeof value === "boolean")
-          return value ? 1.0 : 0.0;
+        if (typeof value === "number") return value;
+        if (typeof value === "string") return Number.parseFloat(value);
+        if (typeof value === "boolean") return value ? 1.0 : 0.0;
         return Number.NaN;
 
       case "TEXT":

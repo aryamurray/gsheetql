@@ -67,8 +67,7 @@ export class SchemaManager {
         `Loaded ${this.schemaCache.size} schemas from metadata sheet`,
       );
       return new Map(this.schemaCache);
-    }
-    catch (err) {
+    } catch (err) {
       logger.error("Failed to load schemas", err);
       throw err;
     }
@@ -106,16 +105,14 @@ export class SchemaManager {
           updateRow as any,
         ]);
         logger.debug(`Updated schema for table ${schema.name}`);
-      }
-      else {
+      } else {
         this.adapter.appendRowsSync(METADATA_SHEET_NAME, [updateRow as any]);
         logger.debug(`Persisted new schema for table ${schema.name}`);
       }
 
       // Update cache
       this.schemaCache.set(schema.name, schema);
-    }
-    catch (err) {
+    } catch (err) {
       logger.error(`Failed to persist schema for ${schema.name}`, err);
       throw err;
     }
@@ -129,23 +126,25 @@ export class SchemaManager {
   }
 
   /**
-   * Delete schema for a table.
+   * Delete schema for a table (synchronous).
    */
-  async deleteSchema(tableName: string): Promise<void> {
+  deleteSchemaSync(tableName: string): void {
     try {
       this.ensureMetadataSheet();
-      const rows = await this.adapter.readRange(METADATA_SHEET_NAME);
+      const rows = this.adapter.readRangeSync(METADATA_SHEET_NAME);
 
       for (let i = 1; i < rows.length; i++) {
         if (rows[i][0] === tableName) {
-          await this.adapter.deleteRows(METADATA_SHEET_NAME, [i + 1]);
+          const sheet = this.spreadsheet.getSheetByName(METADATA_SHEET_NAME);
+          if (sheet) {
+            sheet.deleteRow(i + 1);
+          }
           this.schemaCache.delete(tableName);
           logger.debug(`Deleted schema for table ${tableName}`);
           return;
         }
       }
-    }
-    catch (err) {
+    } catch (err) {
       logger.error(`Failed to delete schema for ${tableName}`, err);
       throw err;
     }

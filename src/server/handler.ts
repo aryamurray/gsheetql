@@ -59,8 +59,7 @@ export class RequestHandler {
       };
 
       return JSON.stringify(response);
-    }
-    catch (err) {
+    } catch (err) {
       logger.error("Request handling failed", err);
       const error = err instanceof Error ? err : new Error(String(err));
 
@@ -77,10 +76,7 @@ export class RequestHandler {
     }
   }
 
-  private executeStatementSync(
-    sql: string,
-    context: ExecutionContext,
-  ): any {
+  private executeStatementSync(sql: string, context: ExecutionContext): any {
     logger.debug("Executing statement", { sql: sql.substring(0, 100) });
 
     try {
@@ -117,8 +113,7 @@ export class RequestHandler {
         default:
           throw new Error(`Statement type not yet implemented: ${stmt.type}`);
       }
-    }
-    catch (err) {
+    } catch (err) {
       logger.error("Statement execution failed", err);
       throw err;
     }

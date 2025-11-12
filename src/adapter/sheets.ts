@@ -40,8 +40,7 @@ export class SheetsAdapter {
 
       logger.debug(`Read ${values.length} rows from ${tableName}`);
       return values as SQLRowArray[];
-    }
-    catch (err) {
+    } catch (err) {
       logger.error(`Failed to read from ${tableName}`, err);
       throw err;
     }
@@ -71,8 +70,7 @@ export class SheetsAdapter {
       logger.debug(
         `Wrote ${numRows} rows to ${tableName} starting at row ${startRow}`,
       );
-    }
-    catch (err) {
+    } catch (err) {
       logger.error(`Failed to write to ${tableName}`, err);
       throw err;
     }
@@ -93,8 +91,7 @@ export class SheetsAdapter {
       }
 
       logger.debug(`Appended ${rows.length} rows to ${tableName}`);
-    }
-    catch (err) {
+    } catch (err) {
       logger.error(`Failed to append to ${tableName}`, err);
       throw err;
     }
@@ -119,8 +116,7 @@ export class SheetsAdapter {
 
       logger.debug(`Deleted ${sorted.length} rows from ${tableName}`);
       return sorted.length;
-    }
-    catch (err) {
+    } catch (err) {
       logger.error(`Failed to delete from ${tableName}`, err);
       throw err;
     }
@@ -139,8 +135,7 @@ export class SheetsAdapter {
 
       logger.debug(`Created sheet ${tableName} with ${columns.length} columns`);
       return sheet;
-    }
-    catch (err) {
+    } catch (err) {
       logger.error(`Failed to create sheet ${tableName}`, err);
       throw err;
     }

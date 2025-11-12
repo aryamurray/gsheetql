@@ -3,6 +3,7 @@
 ## Deployment Details
 
 **Web App URL:**
+
 ```
 https://script.google.com/macros/s/AKfycbywV0663jtV_uSCoPh4O7CJhqmmcxGoHeO-re_jHRRg6dfcvsl074SKk1tVnAorjht4/exec
 ```
@@ -10,6 +11,7 @@ https://script.google.com/macros/s/AKfycbywV0663jtV_uSCoPh4O7CJhqmmcxGoHeO-re_jH
 ## Test 1: CREATE TABLE
 
 **Request:**
+
 ```bash
 curl -X POST \
   -H "Content-Type: application/json" \
@@ -24,11 +26,13 @@ curl -X POST \
 ```
 
 **Expected Response:**
+
 - HTTP 200
 - Schema persisted to `__gsheetql_schema` metadata sheet
 - New sheet `users` created with header row: `id`, `name`, `email`
 
 **Verify:**
+
 1. Open the Google Sheet linked to the Apps Script project
 2. Look for new `users` sheet (tab at bottom)
 3. Look for hidden `__gsheetql_schema` sheet (right-click sheet tabs → Show hidden sheets)
@@ -39,6 +43,7 @@ curl -X POST \
 ## Test 2: CREATE TABLE IF NOT EXISTS
 
 **Request:**
+
 ```bash
 curl -X POST \
   -H "Content-Type: application/json" \
@@ -53,6 +58,7 @@ curl -X POST \
 ```
 
 **Expected Response:**
+
 - HTTP 200
 - No error (should succeed even though `users` already exists)
 - No new sheet created (idempotent)
@@ -62,6 +68,7 @@ curl -X POST \
 ## Test 3: Error Handling - Duplicate Table
 
 **Request:**
+
 ```bash
 curl -X POST \
   -H "Content-Type: application/json" \
@@ -76,6 +83,7 @@ curl -X POST \
 ```
 
 **Expected Response:**
+
 - HTTP 200
 - Error in response with code `SQLITE_ERROR`
 - Message: "Table users already exists"
@@ -86,6 +94,7 @@ curl -X POST \
 ## Test 4: Error Handling - Invalid SQL
 
 **Request:**
+
 ```bash
 curl -X POST \
   -H "Content-Type: application/json" \
@@ -100,6 +109,7 @@ curl -X POST \
 ```
 
 **Expected Response:**
+
 - HTTP 200
 - Error in response with code `SQLITE_ERROR`
 - Parser error message with details
@@ -110,6 +120,7 @@ curl -X POST \
 ## Test 5: Batch Statements
 
 **Request:**
+
 ```bash
 curl -X POST \
   -H "Content-Type: application/json" \
@@ -123,6 +134,7 @@ curl -X POST \
 ```
 
 **Expected Response:**
+
 - HTTP 200
 - Multiple results in response array (one per statement)
 - Both sheets created
@@ -135,6 +147,7 @@ curl -X POST \
 All responses follow libsql-compatible format:
 
 **Success:**
+
 ```json
 {
   "success": true,
@@ -157,6 +170,7 @@ All responses follow libsql-compatible format:
 ```
 
 **Error:**
+
 ```json
 {
   "success": false,
@@ -173,19 +187,24 @@ All responses follow libsql-compatible format:
 ## Debugging
 
 ### View Logs
+
 In Apps Script editor:
+
 1. Click "Execution log" or "Logs" (View → Logs)
 2. Shows console.warn/error output from logger utility
 3. Each log includes timestamp, requestId, level, message
 
 ### View Schema Metadata
+
 1. In the Google Sheet, right-click sheet tabs
 2. Select "Show hidden sheets"
 3. Open `__gsheetql_schema` sheet
 4. View table_name, schema_json, version, created_at, updated_at columns
 
 ### View Created Tables
+
 Each CREATE TABLE creates a new sheet with:
+
 - First row: column headers
 - Subsequent rows: data (empty after CREATE)
 
@@ -204,7 +223,8 @@ Each CREATE TABLE creates a new sheet with:
 ## Next Phase
 
 After CREATE TABLE is validated:
-1. Implement SelectExecutor (SELECT * support)
+
+1. Implement SelectExecutor (SELECT \* support)
 2. Implement InsertExecutor (INSERT VALUES support)
 3. Implement UpdateExecutor (UPDATE WHERE support)
 4. Implement DeleteExecutor (DELETE WHERE support)

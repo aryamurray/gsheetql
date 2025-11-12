@@ -42,8 +42,7 @@ class Logger {
       if (typeof globalThis.Logger !== "undefined") {
         (globalThis as any).Logger.log(msg);
       }
-    }
-    catch {
+    } catch {
       // Ignore if not in GAS context
     }
   }
@@ -55,8 +54,7 @@ class Logger {
       if (typeof globalThis.Logger !== "undefined") {
         (globalThis as any).Logger.log(msg);
       }
-    }
-    catch {
+    } catch {
       // Ignore if not in GAS context
     }
   }
@@ -68,8 +66,7 @@ class Logger {
       if (typeof globalThis.Logger !== "undefined") {
         (globalThis as any).Logger.log(msg);
       }
-    }
-    catch {
+    } catch {
       // Ignore if not in GAS context
     }
   }

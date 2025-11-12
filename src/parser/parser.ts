@@ -45,12 +45,11 @@ export class Parser {
       }
 
       // Handle strings
-      if (char === "'" || char === "\"") {
+      if (char === "'" || char === '"') {
         const quote = char;
         let j = i + 1;
         while (j < sql.length && sql[j] !== quote) {
-          if (sql[j] === "\\")
-            j++; // Handle escaped quotes
+          if (sql[j] === "\\") j++; // Handle escaped quotes
           j++;
         }
         tokens.push(sql.substring(i, j + 1));
@@ -150,21 +149,17 @@ export class Parser {
             this.advance();
             nullable = false;
           }
-        }
-        else if (constraint === "PRIMARY") {
+        } else if (constraint === "PRIMARY") {
           this.advance();
           this.consume("KEY", "Expected KEY");
           primaryKey = true;
-        }
-        else if (constraint === "UNIQUE") {
+        } else if (constraint === "UNIQUE") {
           this.advance();
           unique = true;
-        }
-        else if (constraint === "DEFAULT") {
+        } else if (constraint === "DEFAULT") {
           this.advance();
           defaultValue = this.parseValue();
-        }
-        else {
+        } else {
           break;
         }
       }
@@ -230,8 +225,7 @@ export class Parser {
       columns = [];
       while (this.peek() !== ")") {
         columns.push(this.advance()!);
-        if (this.peek() === ",")
-          this.advance();
+        if (this.peek() === ",") this.advance();
       }
       this.consume(")", "Expected )");
     }
@@ -244,8 +238,7 @@ export class Parser {
       const row = [];
       while (this.peek() !== ")") {
         row.push(this.parseValue());
-        if (this.peek() === ",")
-          this.advance();
+        if (this.peek() === ",") this.advance();
       }
       this.consume(")", "Expected )");
       values.push(row);
@@ -279,8 +272,7 @@ export class Parser {
 
       if (this.peek() === ",") {
         this.advance();
-      }
-      else {
+      } else {
         break;
       }
     }
@@ -315,7 +307,7 @@ export class Parser {
       return { type: "PARAMETER", position: 0 };
     }
 
-    if (token?.startsWith("'") || token?.startsWith("\"")) {
+    if (token?.startsWith("'") || token?.startsWith('"')) {
       const str = this.advance()!;
       return str.substring(1, str.length - 1); // Remove quotes
     }

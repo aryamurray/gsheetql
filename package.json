@@ -1,10 +1,10 @@
 {
   "name": "gsheetql",
-  "module": "index.ts",
   "type": "module",
   "private": true,
+  "module": "index.ts",
   "scripts": {
-    "build": "rm -rf dist && node esbuild.config.mjs",
+    "build": "rm -rf build && tsc && webpack",
     "push": "npm run build && clasp push -f",
     "deploy": "npm run push && clasp deploy",
     "lint": "eslint src --ext .ts",
@@ -12,21 +12,23 @@
     "lint:fix": "prettier . --write",
     "login": "clasp login"
   },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
   "devDependencies": {
     "@antfu/eslint-config": "3.8.0",
     "@google/clasp": "3.1.1",
     "@types/google-apps-script": "2.0.7",
     "@typescript-eslint/eslint-plugin": "8.46.4",
     "@typescript-eslint/parser": "8.46.4",
-    "esbuild": "0.27.0",
     "eslint": "9.39.1",
     "eslint-config-prettier": "^10.1.5",
     "eslint-plugin-format": "^1.0.2",
     "eslint-plugin-googleappsscript": "^1.0.5",
+    "gas-webpack-plugin": "^2.6.0",
     "prettier": "^3.5.3",
-    "typescript": "^5.8.3"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.8.3",
+    "webpack": "^5.99.9",
+    "webpack-cli": "^6.0.1"
   }
 }

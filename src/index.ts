@@ -37,8 +37,7 @@ function doPost(
     return ContentService.createTextOutput(result).setMimeType(
       ContentService.MimeType.JSON,
     );
-  }
-  catch (err) {
+  } catch (err) {
     logger.error("doPost failed", err);
     const error = {
       success: false,
@@ -50,8 +49,7 @@ function doPost(
     return ContentService.createTextOutput(JSON.stringify(error)).setMimeType(
       ContentService.MimeType.JSON,
     );
-  }
-  finally {
+  } finally {
     lock.releaseLock();
   }
 }
