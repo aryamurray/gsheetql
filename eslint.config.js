@@ -10,6 +10,7 @@ export default antfu(
       semi: true,
       quotes: "double",
     },
+    jsdoc: false,
   },
   {
     rules: {
@@ -23,7 +24,17 @@ export default antfu(
       "perfectionist/sort-imports": [
         "error",
         {
-          tsconfigRootDir: ".",
+          type: "alphabetical",
+          order: "asc",
+          ignoreCase: true,
+          groups: [
+            "builtin",
+            "external",
+            "internal",
+            "sibling",
+            "parent",
+            "index",
+          ],
         },
       ],
       "unicorn/filename-case": [

@@ -1,629 +1,1231 @@
-# CLAUDE.md
+- In all interactions and commit messages, be extremely concise and sacrifice grammar for the sake of concision.
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-gsheetql is a SQLite-compatible SQL interface for Google Sheets that enables modern TypeScript ORMs (like Kysely and Drizzle) to interact with spreadsheets as if they were databases. The project implements the libSQL/Hrana HTTP protocol to provide standards-compliant database operations.
+This project implements a SQL interface for Google Apps Script, enabling SQL queries to be executed against Google Sheets data. Each sheet is treated as a database table, supporting core SQLite operations (SELECT, INSERT, UPDATE, DELETE, transactions, etc.) through an HTTP API compatible with libsql conventions.
 
-## Development Commands
+**Scope:**
+- Core SQLite functionality only (no extensions or stored procedures)
+- Concurrent request handling via LockService
+- Text-based data model (all data as strings, converted as needed)
+- HTTP interface via GAS doPost() method
 
-### Installation
-```bash
-bun install
-```
-
-### Running the Development Server
-```bash
-bun run src/index.ts
-```
-
-### Google Apps Script Deployment
-```bash
-# Login to Google
-clasp login
-
-# Create new project
-clasp create --type api --title "gsheetql"
-
-# Push code
-clasp push
-
-# Deploy
-clasp deploy
-```
-
-### Testing
-```bash
-bun test
-```
-
-Note: The package.json specifies `"module": "index.ts"` but the actual entry point is `src/index.ts`.
+**Tech Stack:**
+- TypeScript (modern, strict mode)
+- esbuild (bundler for Apps Script runtime)
+- Google Apps Script runtime with clasp for deployment
+- HTTP interface compatible with libsql server protocol
 
 ## Architecture
 
 ### High-Level Design
 
-The system is based on the existing **gsSQL** implementation, which is a complete SQL query engine for Google Sheets. We're modernizing it to TypeScript and adding libSQL/Hrana protocol compatibility for ORM support:
-
 ```
-ORM (Kysely/Drizzle) → libSQL HTTP Protocol → gsheetql Server → SQL Parser → Query Executor → Google Sheets API
-```
-
-### Existing gsSQL Architecture (Reference Implementation)
-
-The gsSQL codebase (provided in `C:\Users\Arya\Downloads\gsSQL-main`) contains a fully functional SQL engine with the following components:
-
-#### 1. **SimpleParser.js** (~1355 lines) - Custom SQL Parser
-- **Complete lexer and parser** built from scratch (no dependencies!)
-- Parses SELECT statements into Abstract Syntax Tree (AST)
-- **Supported SQL Features:**
-  - SELECT with WHERE, JOIN (INNER, LEFT, RIGHT, FULL), ORDER BY, GROUP BY, HAVING, LIMIT
-  - UNION, UNION ALL, INTERSECT, EXCEPT
-  - Sub-queries (derived tables) in FROM and JOIN clauses
-  - PIVOT operations
-  - Bind variables (?1, ?2, etc.)
-  - Aggregate functions (SUM, MIN, MAX, COUNT, AVG, DISTINCT, GROUP_CONCAT)
-  - Correlated subqueries
-  - Calculated fields and expressions
-- **Key Classes:**
-  - `SqlParse` - Main parser, converts SQL → AST
-  - `CondLexer` - Lexical analyzer for tokenization
-  - `CondParser` - Parses WHERE conditions
-  - `SelectKeywordAnalysis` - Analyzes each SELECT component
-
-#### 2. **Sql.js** (~1254 lines) - Query Execution Engine
-- **Main Classes:**
-  - `gsSQL()` - Entry point (Google Sheets custom function)
-  - `Sql` - Main execution engine
-  - `BindData` - Parameter binding for prepared statements
-  - `TableAlias` - Manages table aliases
-  - `TableExtract` - Extracts referenced tables from AST
-  - `Pivot` - Handles PIVOT operations
-  - `SqlSets` - Implements UNION/INTERSECT/EXCEPT logic
-- **Execution Flow:**
-  1. Parse SQL → AST
-  2. Load table data from sheets
-  3. Handle sub-queries (FROM and JOIN)
-  4. Execute SELECT with WHERE filtering
-  5. Apply JOINs
-  6. GROUP BY and aggregations
-  7. ORDER BY sorting
-  8. LIMIT result set
-  9. Return double array results
-
-#### 3. **Table.js** (~550 lines) - Table & Schema Management
-- **`Table` class:**
-  - Loads data from Google Sheets (named ranges, A1 notation, sheet names)
-  - Handles column titles or auto-generates (A, B, C...)
-  - Creates indexes for efficient JOIN operations
-  - `getRecords()` - Retrieve range of records
-  - `createKeyFieldRecordMap()` - Index records by field values
-- **`Schema` class:**
-  - Manages column metadata (names, positions)
-  - Handles table aliases
-  - Field name variations (tablename.field, alias.field, field)
-  - Virtual fields for derived tables
-
-#### 4. **TableData.js** (~424 lines) - Data Loading & Caching
-- **Sophisticated 3-tier caching strategy:**
-  - **0 seconds**: No cache, read directly from sheets
-  - **≤ 21600s (6 hours)**: Google Apps Script CacheService
-  - **> 21600s**: ScriptProperties (persistent long-term storage)
-- **Features:**
-  - Locking mechanism for concurrent access (prevents race conditions)
-  - Chunks large data into 100KB blocks for cache storage
-  - Automatic cache expiration
-  - Handles Google Sheets API rate limits
-- **Loading Sources:**
-  - Sheet names (loads entire sheet)
-  - Named ranges
-  - A1 notation (e.g., 'Sheet1!A1:C100')
-
-#### 5. **JoinTables.js** (~689 lines) - JOIN Implementation
-- **`JoinTables` class:**
-  - Implements INNER, LEFT, RIGHT, FULL JOINs
-  - Creates derived tables from JOIN operations
-  - Handles complex JOIN conditions with AND/OR logic
-- **`JoinTablesRecordIds` class:**
-  - Finds matching record IDs between tables
-  - Supports calculated fields in JOIN conditions
-  - Optimized for equality joins (uses indexing)
-  - Falls back to full scan for non-equality operators
-- **JOIN Strategy:**
-  1. Index the join fields
-  2. For each left table record, find matching right table records
-  3. Create derived table with combined columns
-  4. Update virtual field list with new column positions
-
-#### 6. **Views.js** (large file, not fully analyzed)
-- Handles derived tables and views
-- Field calculations and SQL functions
-- WHERE condition evaluation
-- GROUP BY and ORDER BY logic
-- Aggregate function calculations
-
-#### 7. **ScriptSettings.js** (~239 lines) - Long-term Cache
-- Uses Google Apps Script Properties for persistent storage
-- Handles cache expiration (days)
-- Bulk get/set operations
-
-#### 8. **Select2Object.js** (~249 lines) - Utility
-- Converts SELECT results (double arrays) to JavaScript objects
-- Column names become object properties
-- Useful for programmatic access
-
-### New Architecture (Modern TypeScript Implementation)
-
-We'll modernize gsSQL with the following components:
-
-#### 1. HTTP Server (libSQL/Hrana Protocol) - NEW
-- Wraps the existing SQL engine with HTTP interface
-- Implements Hrana v3 HTTP protocol for SQLite compatibility
-- Accepts SQL queries over HTTP POST requests
-- Returns results in libSQL-compatible JSON format
-- **Package**: `libsql-stateless` (1.15kB) or `@libsql/hrana-client`
-- Located in: `src/server/`
-
-#### 2. SQL Parser - MODERNIZE EXISTING
-- **Keep the custom parser** from SimpleParser.js
-- Port to TypeScript with proper types
-- Add support for INSERT, UPDATE, DELETE parsing
-- **No external dependencies needed** - parser is already complete!
-- Located in: `src/parser/`
-
-#### 3. Query Executor - EXTEND EXISTING
-- Port Sql.js execution engine to TypeScript
-- **Add missing operations:**
-  - INSERT - append rows to sheets
-  - UPDATE - modify existing rows
-  - DELETE - remove rows (mark as deleted or shift rows)
-  - CREATE TABLE - create new sheet tabs
-  - DROP TABLE - delete sheet tabs
-- Add transaction support (batch operations with rollback)
-- Located in: `src/executor/`
-
-#### 4. Google Sheets Adapter - MODERNIZE EXISTING
-- Port TableData.js caching logic to TypeScript
-- Replace Google Apps Script APIs with googleapis (Node.js)
-- Keep the sophisticated 3-tier caching strategy
-- Add rate limiting and retry logic
-- Handle authentication (OAuth2, Service Account)
-- Located in: `src/adapters/sheets.ts`
-
-#### 5. Schema Manager - MODERNIZE EXISTING
-- Port Table.js and Schema class to TypeScript
-- Keep existing field mapping and indexing logic
-- Add metadata sheet for storing:
-  - Column types and constraints
-  - Primary keys
-  - Indexes
-  - Foreign key relationships (logical only)
-- Located in: `src/schema/`
-
-#### 6. JOIN Engine - PORT EXISTING
-- Port JoinTables.js to TypeScript
-- Keep existing JOIN algorithms (already optimized)
-- Add proper TypeScript types
-- Located in: `src/executor/joins.ts`
-
-#### 7. ORM Driver Interface - NEW
-- Implement SQLite-compatible driver for Kysely
-- Implement Drizzle driver adapter
-- Use libSQL client interface
-- Located in: `src/drivers/`
-
-### Data Model Mapping
-
-| SQL Concept | Google Sheets Equivalent |
-|-------------|-------------------------|
-| Database | Spreadsheet |
-| Table | Sheet (tab) |
-| Column | First row (header) |
-| Row | Spreadsheet row |
-| Primary Key | First column (by convention) |
-| Index | Metadata in `__metadata__` sheet |
-| Schema | `__schema__` sheet with type info |
-
-### Runtime & Build System
-- **Runtime**: Bun (v1.2.23+) for local development
-- **Deployment**: Google Apps Script (via clasp)
-- **Language**: TypeScript with strict mode enabled
-- **Module System**: ESNext with "Preserve" mode for bundler compatibility
-
-### TypeScript Configuration
-The project uses strict TypeScript settings:
-- Strict mode enabled
-- No unchecked indexed access
-- No fallthrough cases in switch statements
-- Bundler module resolution
-- No emit (Bun handles execution directly)
-
-## Project Structure
-
-```
-gsheetql/
-├── src/
-│   ├── index.ts              # Main entry point, HTTP server
-│   ├── server/
-│   │   ├── hrana.ts          # Hrana HTTP protocol handler
-│   │   └── router.ts         # Request routing
-│   ├── parser/
-│   │   ├── index.ts          # SQL parser wrapper
-│   │   └── validator.ts      # Query validation
-│   ├── executor/
-│   │   ├── index.ts          # Main query executor
-│   │   ├── select.ts         # SELECT query handler
-│   │   ├── insert.ts         # INSERT query handler
-│   │   ├── update.ts         # UPDATE query handler
-│   │   ├── delete.ts         # DELETE query handler
-│   │   └── ddl.ts            # CREATE/ALTER/DROP handlers
-│   ├── adapters/
-│   │   ├── sheets.ts         # Google Sheets API wrapper
-│   │   └── cache.ts          # Caching layer
-│   ├── schema/
-│   │   ├── manager.ts        # Schema management
-│   │   └── types.ts          # Type definitions
-│   ├── drivers/
-│   │   ├── kysely.ts         # Kysely dialect
-│   │   └── drizzle.ts        # Drizzle adapter
-│   └── types/
-│       └── index.ts          # Shared type definitions
-├── tests/                    # Test files
-├── package.json
-├── tsconfig.json
-└── README.md
+HTTP POST → doPost(e) → LockService.acquire() → SQL Parser → Query Executor
+                                                       ↓
+                                                Sheets Adapter
+                                                       ↓
+                                              Google Sheets API
+                                                       ↓
+                                                JSON Response
 ```
 
-## Key Dependencies
+### Key Components
 
-### Production
-- **libsql-stateless** or **@libsql/hrana-client**: libSQL HTTP protocol implementation
-- **googleapis**: Google Sheets API v4 client (replaces Apps Script APIs)
-- **zod**: Runtime type validation (already installed)
-- **NO SQL parser dependency needed** - we have a complete custom parser!
+1. **HTTP Handler** (`src/server/`)
+   - `doPost(e)` - Main entry point for HTTP requests
+   - Request parsing and validation
+   - Response formatting (JSON, libsql-compatible)
+   - Concurrent request handling via LockService
 
-### Development
-- **@google/clasp**: Optional - for Apps Script deployment
-- **@types/bun**: Bun TypeScript types
-- **typescript**: TypeScript compiler
-- **@types/node**: Node.js types
+2. **SQL Parser** (`src/parser/`)
+   - Parses SQL statements into AST
+   - Validates syntax and semantics
+   - Supports core SQLite dialect only
 
-## Migration Strategy from gsSQL JavaScript to TypeScript
+3. **Query Executor** (`src/executor/`)
+   - Executes parsed SQL statements
+   - Handles query logic and data manipulation
+   - Coordinates with Sheets Adapter
 
-### Phase 1: Port Core Parser & Executor (Priority: HIGH)
-1. **Port SimpleParser.js → src/parser/** (Week 1-2)
-   - Convert `SqlParse` class to TypeScript
-   - Add AST type definitions (SelectAST, WhereAST, JoinAST, etc.)
-   - Convert `CondLexer` and `CondParser` to TypeScript
-   - Convert `SelectKeywordAnalysis` to TypeScript
-   - Add types for all AST nodes
-   - **Keep all existing logic** - the parser is battle-tested!
-   - Add support for INSERT, UPDATE, DELETE AST generation
+4. **Sheets Adapter** (`src/adapter/`)
+   - Translates operations to Google Sheets API calls
+   - Manages sheet-table mappings
+   - All data handled as text (strings)
 
-2. **Port Sql.js → src/executor/** (Week 2-3)
-   - Convert `Sql` class to TypeScript executor
-   - Add proper types for execution context
-   - Keep existing SELECT execution logic
-   - Port `BindData`, `TableAlias`, `TableExtract` classes
-   - Convert `SqlSets` (UNION/INTERSECT/EXCEPT) logic
-   - Port `Pivot` implementation
+5. **Transaction Manager** (`src/transactions/`)
+   - Implements basic transaction support
+   - Uses LockService for isolation
+   - Snapshot-based rollback
 
-3. **Port Table.js & Schema → src/schema/** (Week 3)
-   - Convert `Table` class with typed table data
-   - Convert `Schema` class with typed column metadata
-   - Add TypeScript interfaces for field definitions
-   - Keep existing indexing and field mapping logic
+## Development Guidelines
 
-4. **Port TableData.js → src/adapters/sheets.ts** (Week 3-4)
-   - Replace Google Apps Script APIs with googleapis
-   - Port 3-tier caching strategy to Node.js
-   - Use node-cache or redis for short-term cache
-   - Use filesystem or database for long-term cache
-   - Keep the locking mechanism (use node-locks or redis locks)
-   - Keep chunk storage strategy for large data
+### Code Style
 
-### Phase 2: Add Missing Write Operations (Priority: HIGH)
-5. **Implement INSERT** (Week 4)
-   - Add INSERT AST types to parser
-   - Parse INSERT INTO syntax with VALUES
-   - Implement executor logic:
-     - Validate columns exist
-     - Append rows using `sheets.spreadsheets.values.append`
-     - Handle auto-generated columns (timestamps, IDs)
-   - Add support for bulk inserts
+- Use TypeScript strict mode
+- Prefer functional patterns over OOP where appropriate
+- Use descriptive variable names (full words, not abbreviations)
+- Keep functions small and focused (single responsibility)
+- Add JSDoc comments for public APIs
 
-6. **Implement UPDATE** (Week 4-5)
-   - Add UPDATE AST types to parser
-   - Parse UPDATE ... SET ... WHERE syntax
-   - Implement executor logic:
-     - Use WHERE logic to find affected rows
-     - Update cells using `sheets.spreadsheets.values.update`
-     - Support calculated SET values
-   - Add batch update support
-
-7. **Implement DELETE** (Week 5)
-   - Add DELETE AST types to parser
-   - Parse DELETE FROM ... WHERE syntax
-   - Implement executor logic:
-     - Use WHERE logic to find affected rows
-     - **Strategy A**: Mark rows as deleted (soft delete)
-     - **Strategy B**: Use `batchUpdate` to delete rows (shifts remaining rows)
-   - Document limitations of each strategy
-
-8. **Implement DDL (CREATE/DROP TABLE)** (Week 5)
-   - Add DDL AST types to parser
-   - CREATE TABLE → Create new sheet tab with column headers
-   - DROP TABLE → Delete sheet tab
-   - ALTER TABLE → Modify column headers (limited support)
-
-### Phase 3: HTTP Server & libSQL Protocol (Priority: MEDIUM)
-9. **Build HTTP Server** (Week 6)
-   - Implement Hrana v3 HTTP protocol using `libsql-stateless`
-   - Create request/response handlers
-   - Map libSQL requests to SQL executor
-   - Handle bind parameters
-   - Return results in libSQL format
-
-10. **Add Transaction Support** (Week 6-7)
-    - Implement basic transaction tracking
-    - Batch multiple operations
-    - **Limited rollback** - Google Sheets API doesn't support true transactions
-    - Use shadow sheet for staging changes before commit
-    - Document transaction limitations
-
-### Phase 4: ORM Compatibility (Priority: MEDIUM)
-11. **Port JoinTables.js → src/executor/joins.ts** (Week 7)
-    - Convert `JoinTables` class to TypeScript
-    - Convert `JoinTablesRecordIds` class
-    - Keep existing JOIN algorithms (already optimized)
-    - Add proper TypeScript types for join operations
-
-12. **Implement Kysely Dialect** (Week 8)
-    - Create custom Kysely dialect for gsheetql
-    - Implement SQLite-compatible driver interface
-    - Test with common Kysely queries
-    - Handle type conversions
-
-13. **Implement Drizzle Adapter** (Week 8)
-    - Create Drizzle driver for gsheetql
-    - Map Drizzle queries to libSQL protocol
-    - Test with common Drizzle queries
-
-### Phase 5: Testing & Documentation (Priority: HIGH)
-14. **Unit Tests** (Ongoing)
-    - Test parser with various SQL queries
-    - Test executor logic for each operation
-    - Test caching mechanisms
-    - Mock Google Sheets API for tests
-
-15. **Integration Tests** (Week 9)
-    - Test against real Google Sheets
-    - Test ORM compatibility (Kysely, Drizzle)
-    - Performance testing with large datasets
-    - Test concurrent access scenarios
-
-16. **Documentation** (Week 9-10)
-    - API documentation
-    - Migration guide from gsSQL
-    - ORM setup guides
-    - Performance tuning guide
-    - Limitations and workarounds
-
-## TypeScript Modernization Guidelines
-
-### Coding Standards
-
-1. **Use Modern TypeScript Features**
-   - Classes with proper access modifiers (private, protected, public)
-   - Async/await instead of callbacks
-   - Optional chaining (`?.`) and nullish coalescing (`??`)
-   - Template literals for strings
-   - Destructuring for objects and arrays
-   - Spread operator for immutability
-
-2. **Type Safety**
-   - Define interfaces for all AST nodes
-   - Use discriminated unions for AST variants
-   - Avoid `any` - use `unknown` when type is truly unknown
-   - Use generics for reusable components
-   - Define strict types for Google Sheets API responses
-
-3. **Error Handling**
-   - Create custom error classes (e.g., `SqlParseError`, `ExecutionError`)
-   - Use Result types for operations that can fail
-   - Proper error messages with context
-
-4. **Code Organization**
-   - One class per file
-   - Barrel exports (index.ts) for each directory
-   - Group related functionality in directories
-   - Keep files under 500 lines when possible
-
-5. **Documentation**
-   - TSDoc comments for all public APIs
-   - Inline comments for complex logic
-   - README in each major directory
-
-### Example: Converting gsSQL to Modern TypeScript
-
-**Before (gsSQL JavaScript):**
-```javascript
-class SqlParse {
-    static sql2ast(sqlStatement) {
-        const query = SqlParse.filterCommentsFromStatement(sqlStatement)
-        const myKeyWords = SqlParse.generateUsedKeywordList(query);
-        // ... more code
-        return result;
-    }
-}
-```
-
-**After (Modern TypeScript):**
+**Example:**
 ```typescript
-interface SelectAST {
-  SELECT: SelectField[];
-  FROM?: FromClause;
-  WHERE?: WhereClause;
-  JOIN?: JoinClause[];
-  'ORDER BY'?: OrderByClause[];
-  'GROUP BY'?: GroupByClause[];
-  LIMIT?: LimitClause;
+/**
+ * Executes a SQL query against a Google Sheet table.
+ * @param query - The SQL query string
+ * @param params - Query parameters for prepared statements
+ * @returns Query results in libsql-compatible format
+ */
+export async function executeQuery(
+  query: string,
+  params?: QueryParams
+): Promise<QueryResult> {
+  // Implementation
 }
+```
 
-interface SelectField {
+### File Organization
+
+```
+src/
+├── server/
+│   ├── index.ts         # doPost() entry point
+│   ├── handlers.ts      # Request handlers
+│   └── response.ts      # Response formatting
+├── parser/
+│   ├── lexer.ts         # Tokenization
+│   ├── parser.ts        # SQL parsing
+│   └── ast.ts           # AST type definitions
+├── executor/
+│   ├── select.ts        # SELECT execution
+│   ├── insert.ts        # INSERT execution
+│   ├── update.ts        # UPDATE execution
+│   ├── delete.ts        # DELETE execution
+│   └── index.ts         # Main executor
+├── adapter/
+│   ├── sheets.ts        # Google Sheets API wrapper
+│   ├── mapping.ts       # Table-sheet mapping
+│   └── conversion.ts    # String conversion utilities
+├── transactions/
+│   ├── manager.ts       # Transaction coordination
+│   ├── lock.ts          # LockService wrapper
+│   └── snapshot.ts      # Snapshot for rollback
+├── utils/
+│   └── validation.ts    # Input validation
+└── index.ts             # Main entry point (exports doPost)
+```
+
+### TypeScript Conventions
+
+1. **Use Google Apps Script types wherever available:**
+```typescript
+import GoogleAppsScript = GoogleAppsScript;
+
+function getSpreadsheet(): GoogleAppsScript.Spreadsheet.Spreadsheet {
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+```
+
+2. **Define clear interfaces for data structures:**
+```typescript
+interface TableSchema {
   name: string;
-  as?: string;
-  order?: 'ASC' | 'DESC';
+  columns: ColumnDefinition[];
+  sheetId: number;
 }
 
-class SqlParser {
+interface ColumnDefinition {
+  name: string;
+  type: SQLiteType;
+  nullable: boolean;
+  defaultValue?: string; // Always string since all data is text
+}
+
+type SQLiteType = 'INTEGER' | 'REAL' | 'TEXT' | 'BLOB' | 'NULL';
+```
+
+3. **Use discriminated unions for AST nodes:**
+```typescript
+type SQLStatement =
+  | { type: 'SELECT'; select: SelectStatement }
+  | { type: 'INSERT'; insert: InsertStatement }
+  | { type: 'UPDATE'; update: UpdateStatement }
+  | { type: 'DELETE'; delete: DeleteStatement }
+  | { type: 'CREATE_TABLE'; createTable: CreateTableStatement };
+```
+
+### doPost() Entry Point
+
+The main HTTP handler uses GAS's `doPost()` method:
+
+```typescript
+/**
+ * Main entry point for HTTP POST requests.
+ * This is called automatically by Google Apps Script.
+ */
+function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.TextOutput {
+  try {
+    // Parse request body
+    const request = JSON.parse(e.postData.contents);
+    
+    // Acquire lock for concurrent request handling
+    const lock = LockService.getScriptLock();
+    const acquired = lock.tryLock(30000); // 30 second timeout
+    
+    if (!acquired) {
+      return createErrorResponse('SQLITE_BUSY', 'Database is locked');
+    }
+    
+    try {
+      // Execute SQL statements
+      const result = executeStatements(request.statements);
+      return createSuccessResponse(result);
+    } finally {
+      lock.releaseLock();
+    }
+  } catch (error) {
+    return createErrorResponse('SQLITE_ERROR', error.message);
+  }
+}
+
+/**
+ * Format success response as JSON.
+ */
+function createSuccessResponse(data: unknown): GoogleAppsScript.Content.TextOutput {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Format error response as JSON.
+ */
+function createErrorResponse(code: string, message: string): GoogleAppsScript.Content.TextOutput {
+  return ContentService.createTextOutput(JSON.stringify({
+    error: { code, message }
+  }))
+  .setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+### Concurrency Handling with LockService
+
+Google Apps Script provides `LockService` for handling concurrent requests:
+
+```typescript
+/**
+ * Lock manager for coordinating concurrent access.
+ */
+class LockManager {
+  private lock: GoogleAppsScript.Lock.Lock;
+  
+  constructor() {
+    // Use ScriptLock for cross-user concurrency
+    this.lock = LockService.getScriptLock();
+  }
+  
   /**
-   * Parses SQL SELECT statement into Abstract Syntax Tree
-   * @param sqlStatement - SQL string to parse
-   * @returns Typed AST representing the query
-   * @throws SqlParseError if syntax is invalid
+   * Acquire lock with timeout.
+   * @param timeoutMs - Maximum time to wait for lock
+   * @returns true if lock acquired, false otherwise
    */
-  static parseSelectStatement(sqlStatement: string): SelectAST {
-    const query = this.filterComments(sqlStatement);
-    const keywords = this.extractKeywords(query);
-    // ... more code with proper types
-    return result;
+  acquire(timeoutMs: number = 30000): boolean {
+    return this.lock.tryLock(timeoutMs);
   }
-
-  private static filterComments(statement: string): string {
-    return statement
-      .split('\n')
-      .filter(line => !line.trim().startsWith('--'))
-      .join(' ');
+  
+  /**
+   * Release the lock.
+   */
+  release(): void {
+    this.lock.releaseLock();
   }
-
-  private static extractKeywords(query: string): string[] {
-    // Implementation with proper typing
+  
+  /**
+   * Execute function with lock held.
+   */
+  withLock<T>(fn: () => T, timeoutMs: number = 30000): T {
+    const acquired = this.acquire(timeoutMs);
+    if (!acquired) {
+      throw new Error('Failed to acquire lock');
+    }
+    
+    try {
+      return fn();
+    } finally {
+      this.release();
+    }
   }
 }
 ```
 
-## Technical Considerations
+**Lock Types in GAS:**
+- `getScriptLock()` - Prevents concurrent access from any user
+- `getUserLock()` - Prevents concurrent access from same user only
+- `getDocumentLock()` - Document-level lock (for this use case, use ScriptLock)
 
-### SQL to Sheets Translation Strategy
+**Best Practices:**
+- Always use `tryLock()` with timeout instead of `waitLock()`
+- Always release locks in a `finally` block
+- Keep lock duration as short as possible
+- For read-only operations, consider skipping locks if consistency isn't critical
 
-**SELECT queries** (Already Implemented in gsSQL):
-- Parse WHERE clause → Evaluate in-memory on fetched data
-- Parse ORDER BY → Sort results in-memory
-- Parse LIMIT → Slice result array
-- Parse JOIN → Create derived table with indexed lookups
-- Parse GROUP BY + Aggregates → Group records and calculate
-- Complex queries → Fetch all referenced table data, process in-memory
-- **Performance**: Indexing optimizes joins, but large tables fetch entire sheet
+### esbuild Configuration
 
-**INSERT queries** (To Be Implemented):
-- Extract values → Use `spreadsheets.values.append`
-- Validate columns exist in schema
-- Support bulk inserts (batch append operations)
-- Handle default values and auto-increment
+The project uses esbuild to bundle TypeScript for the Apps Script runtime. Key considerations:
 
-**UPDATE queries** (To Be Implemented):
-- Use existing WHERE evaluation logic to find affected rows
-- Extract SET values → Use `spreadsheets.values.update` or `batchUpdate`
-- Support calculated SET values
-- Batch multiple updates into single API call
+- Target: ES2020 (Apps Script V8 runtime)
+- Bundle format: IIFE or ESM (depending on Apps Script configuration)
+- Minification: Optional (recommended for production)
+- Source maps: Development only
 
-**DELETE queries** (To Be Implemented):
-- Use existing WHERE evaluation logic to find affected rows
-- **Strategy A (Soft Delete)**: Add `__deleted__` column, mark as deleted
-  - Pros: Fast, reversible, maintains row numbers
-  - Cons: Increases sheet size, requires filtering in SELECT
-- **Strategy B (Hard Delete)**: Use `batchUpdate` to delete rows
-  - Pros: Actually removes data, cleaner
-  - Cons: Shifts row numbers, slower, not reversible
+**Sample esbuild config:**
+```typescript
+import * as esbuild from 'esbuild';
 
-### Performance Considerations (From gsSQL Experience)
+await esbuild.build({
+  entryPoints: ['src/index.ts'],
+  bundle: true,
+  outfile: 'dist/Code.js',
+  platform: 'neutral', // Apps Script is neither node nor browser
+  target: 'es2020',
+  format: 'iife',
+  globalName: 'SQLSheets',
+  minify: process.env.NODE_ENV === 'production',
+  sourcemap: process.env.NODE_ENV === 'development',
+});
+```
 
-1. **3-Tier Caching Strategy** (Already Implemented)
-   - Level 1: No cache (always fresh, 0 seconds)
-   - Level 2: Short-term cache (6 hours max, fast access)
-   - Level 3: Long-term cache (days/weeks, persistent storage)
-   - Large datasets chunked into 100KB blocks
-   - Concurrent access handled with locking
+## HTTP API Specification
 
-2. **JOIN Optimization** (Already Implemented)
-   - Indexed joins for equality conditions (`=`)
-   - Hash maps for O(1) lookups on join keys
-   - Falls back to full scan for non-equality operators
-   - Supports calculated fields in join conditions
+### Compatibility with libsql
 
-3. **Batch Operations**
-   - Group multiple API calls into single batch request
-   - Google Sheets API allows up to 100 requests per batch
-   - Reduces network overhead and API quota usage
+The HTTP interface should be compatible with libsql server conventions for ease of client adoption.
 
-4. **Lazy Loading**
-   - Only fetch sheets that are referenced in query
-   - Cache loaded sheets for subsequent queries
-   - Invalidate cache based on configurable TTL
+#### Execute Query Endpoint
 
-5. **Rate Limiting**
-   - Google Sheets API: 100 requests per 100 seconds per user
-   - Implement exponential backoff with jitter
-   - Queue requests when approaching limits
+**POST** `/v1/execute`
 
-6. **Memory Management**
-   - Stream large result sets instead of loading entirely
-   - Consider pagination for very large tables
-   - Release memory after query completion
+**Request:**
+```json
+{
+  "statements": [
+    {
+      "sql": "SELECT * FROM users WHERE age > ?",
+      "args": [18]
+    }
+  ]
+}
+```
 
-### Known Limitations (From gsSQL + Google Sheets API)
+**Response:**
+```json
+{
+  "results": [
+    {
+      "columns": ["id", "name", "age"],
+      "rows": [
+        [1, "Alice", 25],
+        [2, "Bob", 30]
+      ],
+      "affected_row_count": 0,
+      "last_insert_rowid": null
+    }
+  ]
+}
+```
 
-1. **JOINs are In-Memory Only**
-   - No native SQL JOIN support from Google Sheets
-   - Must fetch both tables entirely and join in application
-   - Large table joins (>10k rows each) may be slow
-   - **Mitigation**: Caching, indexing, query optimization
+#### Transaction Endpoint
 
-2. **No True Transactions**
-   - Google Sheets API doesn't support atomic transactions
-   - Best-effort batching with no rollback guarantee
-   - Partial failures possible in batch operations
-   - **Mitigation**: Use shadow sheets for staging, validate before commit
+**POST** `/v1/transaction`
 
-3. **Type System Limitations**
-   - Google Sheets stores everything as string, number, or boolean
-   - No native DATE, TIMESTAMP, BLOB types
-   - Type coercion required during read/write
-   - **Mitigation**: Metadata sheet to track intended types
+**Request:**
+```json
+{
+  "statements": [
+    {
+      "sql": "BEGIN TRANSACTION"
+    },
+    {
+      "sql": "INSERT INTO users (name, age) VALUES (?, ?)",
+      "args": ["Charlie", 28]
+    },
+    {
+      "sql": "COMMIT"
+    }
+  ]
+}
+```
 
-4. **Concurrent Write Conflicts**
-   - Google Sheets API has eventual consistency
-   - Multiple clients may conflict on same rows
-   - No optimistic locking mechanism
-   - **Mitigation**: Document limitations, add version column for detection
+### Error Responses
 
-5. **Performance with Large Datasets**
-   - Fetching 10k+ rows can be slow (seconds)
-   - Google Sheets not designed as database
-   - API quotas limit throughput
-   - **Mitigation**: Aggressive caching, partition large tables across sheets
+**Format:**
+```json
+{
+  "error": {
+    "message": "Syntax error near 'SELEC'",
+    "code": "SQLITE_ERROR",
+    "details": {
+      "line": 1,
+      "column": 1
+    }
+  }
+}
+```
 
-6. **Limited SQL Feature Support**
-   - No window functions
-   - No recursive CTEs
-   - No triggers or stored procedures
-   - Limited ALTER TABLE support
-   - **Mitigation**: Document supported SQL subset clearly
+**Error Codes:**
+- `SQLITE_ERROR` - General SQL error
+- `SQLITE_CONSTRAINT` - Constraint violation
+- `SQLITE_BUSY` - Resource locked
+- `SHEETS_API_ERROR` - Google Sheets API error
 
-## Development Workflow
+## Data Type Mapping
 
-1. **Local Development**: Use Bun to run and test locally with mock Sheets API
-2. **Testing**: Write unit tests for parser, executor, and adapters
-3. **Integration Tests**: Test against real Google Sheets (test spreadsheet)
-4. **Deployment**: Use clasp to deploy to Google Apps Script
-5. **Versioning**: Tag releases when ORM compatibility is verified
+### Core Principle: Everything is Text
 
-## Debugging Tips
+All data in Google Sheets is stored and transmitted as **text (strings)**. Type conversions happen at the application layer when needed for SQL operations.
 
-- Use `console.log` for Apps Script debugging (shows in execution logs)
-- Test SQL queries directly against parser before executor
-- Use Google Sheets API Explorer to verify API calls
-- Check Apps Script execution logs for errors
-- Monitor API quota usage in Google Cloud Console
+### SQL Types to Storage
+
+| SQLite Type | Storage Format | Conversion Notes |
+|-------------|----------------|------------------|
+| INTEGER | String | `"123"`, `"-456"` - Parse with `parseInt()` |
+| REAL | String | `"3.14"`, `"-2.5e3"` - Parse with `parseFloat()` |
+| TEXT | String | Direct storage, no conversion |
+| BLOB | Base64 String | Encode/decode as needed |
+| NULL | Empty string `""` | Empty cells represent NULL |
+| BOOLEAN | String | `"true"` or `"false"` (case-insensitive) |
+
+### HTTP JSON to Storage
+
+All JSON values are stringified when storing:
+
+```typescript
+// Example conversions
+const jsonValue = 42;
+const storedValue = String(jsonValue); // "42"
+
+const jsonArray = [1, 2, 3];
+const storedArray = JSON.stringify(jsonArray); // "[1,2,3]"
+```
+
+### Storage to HTTP JSON
+
+Convert strings back to appropriate JSON types based on SQL type:
+
+```typescript
+function convertToJSON(value: string, sqlType: SQLiteType): unknown {
+  if (value === '') return null; // NULL handling
+  
+  switch (sqlType) {
+    case 'INTEGER':
+      return parseInt(value, 10);
+    case 'REAL':
+      return parseFloat(value);
+    case 'TEXT':
+      return value;
+    case 'BLOB':
+      return value; // Already base64 string
+    case 'NULL':
+      return null;
+    default:
+      return value;
+  }
+}
+```
+
+### Type Inference
+
+When SQL type is not explicitly specified (e.g., in SELECT * queries), infer type from value:
+
+```typescript
+function inferType(value: string): SQLiteType {
+  if (value === '') return 'NULL';
+  if (/^-?\d+$/.test(value)) return 'INTEGER';
+  if (/^-?\d+\.\d+$/.test(value)) return 'REAL';
+  if (value === 'true' || value === 'false') return 'INTEGER'; // SQLite stores booleans as integers
+  return 'TEXT';
+}
+```
+
+### Schema Storage
+
+First row of each sheet contains column headers:
+
+```
+| id | name | age | email |
+|----|------|-----|-------|
+| 1  | Alice| 25  | a@example.com |
+| 2  | Bob  | 30  | b@example.com |
+```
+
+Type information can be stored in:
+1. **Script Properties** (recommended for simplicity)
+2. **Hidden metadata sheet** (if more complex schema needed later)
+
+```typescript
+// Store schema in Script Properties
+const props = PropertiesService.getScriptProperties();
+props.setProperty('schema:users', JSON.stringify({
+  id: 'INTEGER',
+  name: 'TEXT',
+  age: 'INTEGER',
+  email: 'TEXT'
+}));
+```
+
+## Core Features Implementation
+
+### 1. SELECT Queries
+
+**Supported:**
+- Column selection (including `*`)
+- WHERE clauses with comparison operators
+- ORDER BY (ASC/DESC)
+- LIMIT and OFFSET
+- Aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+- GROUP BY and HAVING
+- JOINs (INNER, LEFT, RIGHT, FULL)
+- Subqueries
+
+**Implementation Strategy:**
+```typescript
+// 1. Parse SQL → AST
+// 2. Identify target sheet(s)
+// 3. Fetch data range from Sheets API
+// 4. Apply WHERE filter in memory (convert to JS predicates)
+// 5. Apply ORDER BY/GROUP BY in memory
+// 6. Apply LIMIT/OFFSET
+// 7. Format results
+```
+
+**Optimization:**
+- Use `getDataRange().getValues()` for bulk reads
+- Cache schema information
+- Push-down predicates where possible (e.g., range queries)
+
+### 2. INSERT Queries
+
+**Supported:**
+- Single row inserts
+- Multiple row inserts
+- Column-specific inserts
+- DEFAULT values
+
+**Implementation:**
+```typescript
+// 1. Parse INSERT statement
+// 2. Validate against schema
+// 3. Apply defaults for missing columns
+// 4. Append rows to sheet using appendRow() or setValues()
+// 5. Return last_insert_rowid (row number)
+```
+
+**Considerations:**
+- Auto-increment behavior (row number as ID)
+- Handle unique constraints
+- Batch inserts for performance
+
+### 3. UPDATE Queries
+
+**Supported:**
+- Conditional updates (WHERE clause)
+- Multiple column updates
+- Update entire table
+
+**Implementation:**
+```typescript
+// 1. Parse UPDATE statement
+// 2. Fetch matching rows (using WHERE logic)
+// 3. Modify values in memory
+// 4. Write back using setValues() for range
+// 5. Return affected_row_count
+```
+
+**Performance:**
+- Batch updates using range operations
+- Minimize API calls
+
+### 4. DELETE Queries
+
+**Supported:**
+- Conditional deletes (WHERE clause)
+- Delete all rows (TRUNCATE-like)
+
+**Implementation:**
+```typescript
+// 1. Parse DELETE statement
+// 2. Identify rows to delete (WHERE clause)
+// 3. Delete rows using deleteRow() or deleteRows()
+// 4. Return affected_row_count
+```
+
+**Considerations:**
+- Row deletion shifts subsequent rows (handle carefully)
+- Consider soft-delete for transactions
+
+### 5. Transactions
+
+**Supported:**
+- BEGIN TRANSACTION
+- COMMIT
+- ROLLBACK
+
+**Implementation Strategy:**
+```typescript
+// 1. Store original state (snapshot of affected ranges)
+// 2. Apply operations to sheet
+// 3. On COMMIT: clear snapshot
+// 4. On ROLLBACK: restore from snapshot
+```
+
+**Limitations:**
+- Apps Script lacks true ACID transactions
+- Best-effort isolation using locking service
+- Recovery from crashes is limited
+
+### 6. CREATE TABLE
+
+**Supported:**
+- Create new sheet with schema
+- Column definitions
+- Constraints (PRIMARY KEY, NOT NULL, UNIQUE)
+
+**Implementation:**
+```typescript
+// 1. Parse CREATE TABLE statement
+// 2. Create new sheet in spreadsheet
+// 3. Write header row with column names
+// 4. Store schema metadata (possibly in hidden sheet)
+```
+
+### 7. Prepared Statements
+
+**Supported:**
+- Positional parameters (`?`)
+- Named parameters (`:name`, `@name`, `$name`)
+
+**Implementation:**
+```typescript
+// 1. Parse SQL with parameter placeholders
+// 2. Store parsed AST with parameter positions
+// 3. Bind parameters at execution time
+// 4. Prevent SQL injection by design
+```
+
+## Performance Optimization
+
+### Batch Operations
+
+The primary optimization strategy is to minimize Google Sheets API calls through batching:
+
+**Reading Data:**
+```typescript
+// ✅ GOOD: Read entire range at once
+const values = sheet.getDataRange().getValues();
+
+// ❌ BAD: Read cell by cell
+for (let i = 1; i <= sheet.getLastRow(); i++) {
+  const value = sheet.getRange(i, 1).getValue();
+}
+```
+
+**Writing Data:**
+```typescript
+// ✅ GOOD: Write multiple rows at once
+const data = [
+  ['Alice', 25],
+  ['Bob', 30],
+  ['Charlie', 28]
+];
+sheet.getRange(2, 1, data.length, data[0].length).setValues(data);
+
+// ❌ BAD: Write row by row
+for (const row of data) {
+  sheet.appendRow(row);
+}
+```
+
+**Updating Data:**
+```typescript
+// ✅ GOOD: Update range
+const updates = [[newValue1], [newValue2], [newValue3]];
+sheet.getRange(startRow, col, updates.length, 1).setValues(updates);
+
+// ❌ BAD: Update cells individually
+sheet.getRange(row1, col).setValue(newValue1);
+sheet.getRange(row2, col).setValue(newValue2);
+```
+
+### Query Execution Strategy
+
+**For SELECT queries:**
+1. Read entire sheet data once with `getDataRange().getValues()`
+2. Filter in memory (JavaScript)
+3. Sort in memory
+4. Apply LIMIT/OFFSET
+5. Return results
+
+**For INSERT queries:**
+1. Prepare all rows to insert
+2. Use single `setValues()` call for multiple rows
+3. Return result
+
+**For UPDATE queries:**
+1. Read affected range once
+2. Modify in memory
+3. Write back with single `setValues()` call
+
+**For DELETE queries:**
+1. Identify rows to delete (read once)
+2. Delete in reverse order (to maintain row indices)
+3. Consider batching deletes if API supports it
+
+### Transaction Optimization
+
+During transactions:
+- Take snapshot of affected ranges only (not entire sheet)
+- Keep snapshot in memory
+- On ROLLBACK, restore with single `setValues()` call
+
+### Connection Reuse
+
+```typescript
+// Reuse spreadsheet connection
+let cachedSpreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet | null = null;
+
+function getSpreadsheet(): GoogleAppsScript.Spreadsheet.Spreadsheet {
+  if (!cachedSpreadsheet) {
+    cachedSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  }
+  return cachedSpreadsheet;
+}
+```
+
+## Testing Strategy
+
+### Local Development with clasp
+
+Use [clasp](https://github.com/google/clasp) for local development and testing:
+
+```bash
+# Install clasp globally
+npm install -g @google/clasp
+
+# Login to Google account
+clasp login
+
+# Create new project (or clone existing)
+clasp create --type standalone --title "SQL Sheets"
+
+# Push code to Apps Script
+clasp push
+
+# Pull code from Apps Script
+clasp pull
+
+# Open project in browser
+clasp open
+```
+
+### Development Workflow
+
+1. Write TypeScript locally
+2. Build with esbuild
+3. Push with clasp
+4. Test in Apps Script environment
+5. View logs with `clasp logs`
+
+### Unit Tests
+
+Test core logic without Apps Script dependencies:
+
+```typescript
+// Test SQL parser
+describe('SQL Parser', () => {
+  it('should parse SELECT statement', () => {
+    const sql = 'SELECT id, name FROM users WHERE age > 18';
+    const ast = parse(sql);
+    expect(ast.type).toBe('SELECT');
+    expect(ast.select.columns).toHaveLength(2);
+  });
+  
+  it('should parse INSERT statement', () => {
+    const sql = "INSERT INTO users (name, age) VALUES ('Alice', 25)";
+    const ast = parse(sql);
+    expect(ast.type).toBe('INSERT');
+  });
+});
+
+// Test query executor logic (with mock data)
+describe('Query Executor', () => {
+  it('should filter rows with WHERE clause', () => {
+    const data = [
+      ['id', 'name', 'age'],
+      ['1', 'Alice', '25'],
+      ['2', 'Bob', '17'],
+      ['3', 'Charlie', '30']
+    ];
+    
+    const result = executeWhere(data, { 
+      column: 'age', 
+      operator: '>', 
+      value: '18' 
+    });
+    
+    expect(result).toHaveLength(2); // Alice and Charlie
+  });
+});
+```
+
+### Integration Tests
+
+Test against real Google Sheets using clasp:
+
+```typescript
+// integration-test.ts
+function testSelect() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('test_users');
+  
+  // Setup test data
+  sheet.clear();
+  sheet.appendRow(['id', 'name', 'age']);
+  sheet.appendRow(['1', 'Alice', '25']);
+  sheet.appendRow(['2', 'Bob', '30']);
+  
+  // Test query
+  const result = executeQuery('SELECT * FROM test_users WHERE age > 20');
+  
+  Logger.log('Test result: ' + JSON.stringify(result));
+  console.assert(result.rows.length === 2, 'Should return 2 rows');
+}
+
+// Run from Apps Script editor or with clasp
+function runAllTests() {
+  testSelect();
+  // Add more tests...
+}
+```
+
+### Testing HTTP Endpoint
+
+Use curl or Postman to test the deployed web app:
+
+```bash
+# Deploy as web app via Apps Script UI
+# Copy the web app URL
+
+# Test POST request
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      {
+        "sql": "SELECT * FROM users",
+        "args": []
+      }
+    ]
+  }' \
+  https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+```
+
+### Logging and Debugging
+
+```typescript
+// Use Logger for persistent logs
+Logger.log('Executing query: ' + sql);
+
+// Use console.log for execution logs (visible in clasp logs)
+console.log('[DEBUG] Query result:', result);
+
+// View logs with clasp
+// $ clasp logs
+```
+
+### Test Data Setup
+
+Create a separate test spreadsheet:
+
+```typescript
+function setupTestData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Create test tables
+  const users = ss.insertSheet('users');
+  users.appendRow(['id', 'name', 'email', 'age']);
+  users.appendRow(['1', 'Alice', 'alice@example.com', '25']);
+  users.appendRow(['2', 'Bob', 'bob@example.com', '30']);
+  
+  const orders = ss.insertSheet('orders');
+  orders.appendRow(['id', 'user_id', 'amount', 'status']);
+  orders.appendRow(['1', '1', '99.99', 'completed']);
+  orders.appendRow(['2', '1', '49.99', 'pending']);
+  orders.appendRow(['3', '2', '199.99', 'completed']);
+}
+```
+
+## Error Handling
+
+### Error Hierarchy
+
+```typescript
+class SQLSheetsError extends Error {
+  constructor(
+    message: string,
+    public code: string,
+    public details?: unknown
+  ) {
+    super(message);
+  }
+}
+
+class ParseError extends SQLSheetsError {}
+class ExecutionError extends SQLSheetsError {}
+class SheetsAPIError extends SQLSheetsError {}
+class TransactionError extends SQLSheetsError {}
+```
+
+### Error Recovery
+
+- Graceful degradation for unsupported features
+- Clear error messages with suggestions
+- Rollback on critical errors in transactions
+
+## Security Considerations
+
+### SQL Injection Prevention
+
+- Use prepared statements exclusively for user input
+- Validate and sanitize all inputs
+- Never concatenate user input into SQL strings
+
+### Access Control
+
+- Leverage Google Sheets native permissions
+- No additional auth layer needed (Apps Script handles this)
+- Consider row-level security for sensitive data
+
+### Rate Limiting
+
+- Implement request throttling to prevent abuse
+- Use Apps Script quotas awareness
+- Return 429 Too Many Requests when limits exceeded
+
+## Common Patterns & Examples
+
+### Creating a Table
+
+```sql
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE,
+  age INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Complex Query
+
+```sql
+SELECT 
+  u.name,
+  COUNT(o.id) as order_count,
+  SUM(o.amount) as total_spent
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+WHERE u.age >= 18
+GROUP BY u.id, u.name
+HAVING total_spent > 100
+ORDER BY total_spent DESC
+LIMIT 10;
+```
+
+### Transaction Example
+
+```sql
+BEGIN TRANSACTION;
+
+INSERT INTO accounts (id, balance) VALUES (1, 1000);
+INSERT INTO accounts (id, balance) VALUES (2, 500);
+
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+
+COMMIT;
+```
+
+## Debugging & Troubleshooting
+
+### Logging
+
+Use `console.log()` in Apps Script, which outputs to Execution Log:
+
+```typescript
+function debugQuery(sql: string) {
+  console.log('[DEBUG] Executing SQL:', sql);
+  console.log('[DEBUG] Timestamp:', new Date().toISOString());
+}
+```
+
+### Common Issues
+
+1. **"Sheet not found" errors:**
+   - Verify sheet name matches table name
+   - Check for case sensitivity
+
+2. **"Invalid range" errors:**
+   - Ensure sheet is not empty
+   - Check for proper header row
+
+3. **Performance degradation:**
+   - Check query complexity
+   - Review number of API calls
+   - Consider breaking into smaller queries
+
+## Deployment
+
+### clasp Deployment Workflow
+
+**Initial Setup:**
+```bash
+# Install dependencies
+npm install -g @google/clasp
+npm install
+
+# Login to Google
+clasp login
+
+# Initialize project
+clasp create --type standalone --title "SQL for Google Sheets"
+
+# This creates:
+# - .clasp.json (project configuration)
+# - appsscript.json (Apps Script manifest)
+```
+
+**Build and Deploy:**
+```bash
+# Build TypeScript with esbuild
+npm run build
+
+# Push to Apps Script
+clasp push
+
+# Deploy as web app
+clasp deploy --description "Production v1.0"
+
+# List deployments
+clasp deployments
+
+# Open in browser
+clasp open
+```
+
+**Configuration Files:**
+
+`.clasp.json`:
+```json
+{
+  "scriptId": "YOUR_SCRIPT_ID",
+  "rootDir": "./dist"
+}
+```
+
+`appsscript.json`:
+```json
+{
+  "timeZone": "America/New_York",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "webapp": {
+    "access": "ANYONE_ANONYMOUS",
+    "executeAs": "USER_DEPLOYING"
+  }
+}
+```
+
+### Web App Configuration
+
+After pushing code, configure the web app in Apps Script UI:
+
+1. Click "Deploy" → "New deployment"
+2. Select type: "Web app"
+3. Description: "SQL HTTP API v1"
+4. Execute as: "Me"
+5. Who has access: "Anyone" (or restrict as needed)
+6. Click "Deploy"
+7. Copy the web app URL
+
+**Important:** The web app URL will be in format:
+```
+https://script.google.com/macros/s/{DEPLOYMENT_ID}/exec
+```
+
+### Environment Configuration
+
+Use Script Properties for environment-specific config:
+
+```typescript
+// Set properties via code (run once)
+function setupConfig() {
+  const props = PropertiesService.getScriptProperties();
+  props.setProperties({
+    'MAX_QUERY_TIMEOUT': '30000',
+    'MAX_ROWS_PER_QUERY': '10000',
+    'ENABLE_TRANSACTIONS': 'true'
+  });
+}
+
+// Read properties in code
+const config = {
+  maxQueryTimeout: parseInt(
+    PropertiesService.getScriptProperties().getProperty('MAX_QUERY_TIMEOUT') || '30000'
+  ),
+  maxRowsPerQuery: parseInt(
+    PropertiesService.getScriptProperties().getProperty('MAX_ROWS_PER_QUERY') || '10000'
+  ),
+  enableTransactions: 
+    PropertiesService.getScriptProperties().getProperty('ENABLE_TRANSACTIONS') === 'true',
+};
+```
+
+Or set properties via clasp:
+
+```bash
+# Script Properties can also be managed in the Apps Script UI:
+# Project Settings → Script Properties
+```
+
+### Continuous Deployment
+
+**GitHub Actions Example:**
+```yaml
+name: Deploy to Apps Script
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Setup clasp
+        run: |
+          npm install -g @google/clasp
+          echo "$CLASP_CREDENTIALS" > ~/.clasprc.json
+        env:
+          CLASP_CREDENTIALS: ${{ secrets.CLASP_CREDENTIALS }}
+      
+      - name: Deploy
+        run: |
+          clasp push
+          clasp deploy --description "Auto-deploy from GitHub"
+```
+
+### Monitoring and Logs
+
+**View logs:**
+```bash
+# Stream logs in real-time
+clasp logs
+
+# View logs in browser
+clasp open --logs
+```
+
+**Stackdriver Logging:**
+```typescript
+// Logs automatically go to Stackdriver (Google Cloud Logging)
+console.log('Info message');
+console.error('Error message');
+console.warn('Warning message');
+```
+
+### Version Management
+
+**Create versioned deployments:**
+```bash
+# Deploy new version
+clasp deploy --description "v1.1.0 - Added transaction support"
+
+# List all deployments
+clasp deployments
+
+# Undeploy old versions
+clasp undeploy <deploymentId>
+```
+
+### Rollback Strategy
+
+If a deployment has issues:
+
+1. Keep previous working version deployed
+2. Deploy new version as separate deployment
+3. Test new deployment URL
+4. If issues, switch back to previous deployment
+5. Undeploy broken version
+
+```bash
+# Deploy without undeploying previous
+clasp deploy --description "v1.2.0"
+
+# If broken, undeploy and revert
+clasp undeploy <broken_deployment_id>
+```
+
+## Future Enhancements
+
+- [ ] Query optimization and execution plan analysis
+- [ ] Aggregate function support beyond COUNT, SUM, AVG, MIN, MAX
+- [ ] Window functions (ROW_NUMBER, RANK, etc.)
+- [ ] Common Table Expressions (CTEs / WITH clause)
+- [ ] Bulk import/export (CSV, JSON)
+- [ ] Query result streaming for large datasets
+- [ ] Multi-spreadsheet queries (federated queries)
+- [ ] ALTER TABLE support for schema changes
+- [ ] Index hints for query optimization
+- [ ] Query cost estimation
+
+## Resources
+
+- [Google Apps Script Documentation](https://developers.google.com/apps-script)
+- [SQLite SQL Syntax](https://www.sqlite.org/lang.html)
+- [libsql HTTP Protocol](https://github.com/libsql/libsql)
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
+- [esbuild Documentation](https://esbuild.github.io/)
+
+## Contributing Guidelines
+
+When working on this project, Claude should:
+
+1. **Prioritize correctness over cleverness:** Clear, maintainable code is better than overly clever solutions
+2. **Write tests first for new features:** TDD approach ensures robustness
+3. **Document complex algorithms:** Add comments explaining the "why", not just the "what"
+4. **Consider Apps Script limitations:** Be aware of execution time limits and API quotas
+5. **Maintain libsql compatibility:** Any API changes should maintain backward compatibility
+6. **Optimize for common cases:** Most queries will be simple SELECTs and INSERTs
+
+## Key Principles
+
+- **Simplicity First:** Core SQLite functionality only - no extensions or stored procedures
+- **Text-Based Model:** All data is text; type conversions at application layer only
+- **Concurrency via LockService:** Use GAS's LockService for safe concurrent access
+- **Batch Operations:** Minimize Sheets API calls through batching
+- **libsql Compatibility:** Maintain HTTP protocol compatibility for client adoption
+- **Type Safety:** Leverage TypeScript fully; use GAS types where available
+- **clasp-First Development:** Use clasp for local development and deployment
