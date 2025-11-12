@@ -4,6 +4,8 @@
  */
 
 import { CreateTableExecutor } from "../executor/create.js";
+import { InsertExecutor } from "../executor/insert.js";
+import { SelectExecutor } from "../executor/select.js";
 import { parser } from "../parser/parser.js";
 import { SchemaManager } from "../schema/manager.js";
 import type { ApiResponse } from "../types/common.js";
@@ -93,6 +95,16 @@ export class RequestHandler {
         case "CREATE_TABLE": {
           const createExec = new CreateTableExecutor(context);
           return createExec.executeSync(stmt.stmt);
+        }
+
+        case "INSERT": {
+          const insertExec = new InsertExecutor(context);
+          return insertExec.executeSync(stmt.stmt);
+        }
+
+        case "SELECT": {
+          const selectExec = new SelectExecutor(context);
+          return selectExec.executeSync(stmt.stmt);
         }
 
         case "BEGIN":

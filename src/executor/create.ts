@@ -38,7 +38,7 @@ export class CreateTableExecutor {
       }
 
       // Create sheet and add header row
-      const columnNames = columns.map((c) => c.name);
+      const columnNames = columns.map(c => c.name);
       adapter.createSheet(table, columnNames);
 
       // Build schema and persist
@@ -51,7 +51,7 @@ export class CreateTableExecutor {
         version: 1,
         createdAt: now,
         updatedAt: now,
-        columns: columns.map((col) => ({
+        columns: columns.map(col => ({
           name: col.name,
           type: (col.type.toUpperCase() as any) || "TEXT",
           nullable: col.nullable !== false,

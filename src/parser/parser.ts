@@ -45,7 +45,7 @@ export class Parser {
       }
 
       // Handle strings
-      if (char === "'" || char === '"') {
+      if (char === "'" || char === `"`) {
         const quote = char;
         let j = i + 1;
         while (j < sql.length && sql[j] !== quote) {
@@ -57,8 +57,18 @@ export class Parser {
         continue;
       }
 
-      // Handle symbols
-      if (/[(),;?]/.test(char)) {
+      // Handle multi-char operators
+      if (i + 1 < sql.length) {
+        const twoChar = sql.substring(i, i + 2);
+        if (["<=", ">=", "<>", "!=", "=="].indexOf(twoChar) !== -1) {
+          tokens.push(twoChar);
+          i += 2;
+          continue;
+        }
+      }
+
+      // Handle single-char operators
+      if (/[(),;?<>=+\-*/]/.test(char)) {
         tokens.push(char);
         i++;
         continue;
@@ -196,19 +206,93 @@ export class Parser {
   private parseSelect(): SQLStatement {
     this.consume("SELECT", "Expected SELECT");
 
-    // Simplified: only support SELECT *
+    // Parse columns (simplified: only support SELECT *)
+    const columns: any[] = [];
     if (this.peek() === "*") {
       this.advance();
+      columns.push({ expr: { type: "STAR" } as const });
+    } else {
+      // Support SELECT col1, col2, ... in future
+      columns.push({ expr: { type: "STAR" } as const });
     }
 
     this.consume("FROM", "Expected FROM");
     const tableName = this.advance()!;
 
+    // Parse WHERE clause
+    let where;
+    if (this.peek()?.toUpperCase() === "WHERE") {
+      this.advance();
+      where = {
+        expr: this.parseLogicalOr(),
+      };
+    }
+
+    // Parse GROUP BY clause
+    let groupBy;
+    if (this.peek()?.toUpperCase() === "GROUP") {
+      this.advance();
+      this.consume("BY", "Expected BY");
+      groupBy = [];
+      while (true) {
+        groupBy.push(this.advance()!);
+        if (this.peek() !== ",") break;
+        this.advance();
+      }
+    }
+
+    // Parse HAVING clause
+    let having;
+    if (this.peek()?.toUpperCase() === "HAVING") {
+      this.advance();
+      having = this.parseLogicalOr();
+    }
+
+    // Parse ORDER BY clause
+    let orderBy;
+    if (this.peek()?.toUpperCase() === "ORDER") {
+      this.advance();
+      this.consume("BY", "Expected BY");
+      orderBy = [];
+      while (true) {
+        const column = this.advance()!;
+        const desc = this.peek()?.toUpperCase() === "DESC";
+        if (desc) {
+          this.advance();
+        } else if (this.peek()?.toUpperCase() === "ASC") {
+          this.advance();
+        }
+        orderBy.push({ column, desc: !!desc });
+        if (this.peek() !== ",") break;
+        this.advance();
+      }
+    }
+
+    // Parse LIMIT clause
+    let limit;
+    if (this.peek()?.toUpperCase() === "LIMIT") {
+      this.advance();
+      limit = parseInt(this.advance()!);
+    }
+
+    // Parse OFFSET clause
+    let offset;
+    if (this.peek()?.toUpperCase() === "OFFSET") {
+      this.advance();
+      offset = parseInt(this.advance()!);
+    }
+
     return {
       type: "SELECT",
       stmt: {
-        columns: [{ expr: { type: "STAR" } }],
+        columns,
         from: tableName,
+        where,
+        groupBy,
+        having,
+        orderBy,
+        limit,
+        offset,
       },
     };
   }
@@ -299,6 +383,243 @@ export class Parser {
     };
   }
 
+  /**
+   * Expression parsing using operator precedence (recursive descent)
+   * Precedence (lowest to highest):
+   * 1. OR
+   * 2. AND
+   * 3. =, !=, <>, <, >, <=, >=, LIKE, IN, IS
+   * 4. +, -
+   * 5. *, /
+   * 6. Primary (literals, columns, parens, functions)
+   */
+
+  private parseLogicalOr(): any {
+    let expr = this.parseLogicalAnd();
+
+    while (this.peek()?.toUpperCase() === "OR") {
+      this.advance();
+      const right = this.parseLogicalAnd();
+      expr = {
+        type: "BINARY_OP",
+        op: "OR",
+        left: expr,
+        right,
+      };
+    }
+
+    return expr;
+  }
+
+  private parseLogicalAnd(): any {
+    let expr = this.parseComparison();
+
+    while (this.peek()?.toUpperCase() === "AND") {
+      this.advance();
+      const right = this.parseComparison();
+      expr = {
+        type: "BINARY_OP",
+        op: "AND",
+        left: expr,
+        right,
+      };
+    }
+
+    return expr;
+  }
+
+  private parseComparison(): any {
+    let expr = this.parseAdditive();
+
+    const op = this.peek()?.toUpperCase();
+    if (
+      op === "=" ||
+      op === "!=" ||
+      op === "<>" ||
+      op === "<" ||
+      op === ">" ||
+      op === "<=" ||
+      op === ">=" ||
+      op === "LIKE" ||
+      op === "IN" ||
+      op === "IS"
+    ) {
+      this.advance();
+      const right = this.parseAdditive();
+      expr = {
+        type: "BINARY_OP",
+        op,
+        left: expr,
+        right,
+      };
+
+      // Handle IS NULL / IS NOT NULL
+      if (op === "IS" && this.peek()?.toUpperCase() === "NOT") {
+        this.advance();
+        const notNull = this.advance();
+        expr = {
+          type: "BINARY_OP",
+          op: "IS NOT",
+          left: expr,
+          right: { type: "LITERAL", value: notNull },
+        };
+      }
+    }
+
+    return expr;
+  }
+
+  private parseAdditive(): any {
+    let expr = this.parseMultiplicative();
+
+    while (true) {
+      const op = this.peek();
+      if (op === "+" || op === "-") {
+        this.advance();
+        const right = this.parseMultiplicative();
+        expr = {
+          type: "BINARY_OP",
+          op,
+          left: expr,
+          right,
+        };
+      } else {
+        break;
+      }
+    }
+
+    return expr;
+  }
+
+  private parseMultiplicative(): any {
+    let expr = this.parseUnary();
+
+    while (true) {
+      const op = this.peek();
+      if (op === "*" || op === "/") {
+        this.advance();
+        const right = this.parseUnary();
+        expr = {
+          type: "BINARY_OP",
+          op,
+          left: expr,
+          right,
+        };
+      } else {
+        break;
+      }
+    }
+
+    return expr;
+  }
+
+  private parseUnary(): any {
+    const op = this.peek();
+
+    if (op === "-" || op === "+") {
+      this.advance();
+      const expr = this.parseUnary();
+      return {
+        type: "UNARY_OP",
+        op,
+        operand: expr,
+      };
+    }
+
+    if (op?.toUpperCase() === "NOT") {
+      this.advance();
+      const expr = this.parseUnary();
+      return {
+        type: "UNARY_OP",
+        op: "NOT",
+        operand: expr,
+      };
+    }
+
+    return this.parsePrimary();
+  }
+
+  private parsePrimary(): any {
+    const token = this.peek();
+
+    if (!token) {
+      throw new Error("Unexpected end of expression");
+    }
+
+    // Parenthesized expression
+    if (token === "(") {
+      this.advance();
+      const expr = this.parseLogicalOr();
+      this.consume(")", "Expected )");
+      return {
+        type: "PAREN",
+        expr,
+      };
+    }
+
+    // Literal values
+    if (token.startsWith("'") || token.startsWith(`"`)) {
+      const str = this.advance()!;
+      return {
+        type: "LITERAL",
+        value: str.substring(1, str.length - 1),
+      };
+    }
+
+    // Numbers
+    if (/^\d+(\.\d+)?$/.test(token)) {
+      const num = this.advance()!;
+      return {
+        type: "LITERAL",
+        value: /\./.test(num) ? parseFloat(num) : parseInt(num, 10),
+      };
+    }
+
+    // Keywords as literals
+    if (token.toUpperCase() === "NULL") {
+      this.advance();
+      return { type: "LITERAL", value: null };
+    }
+
+    if (token.toUpperCase() === "TRUE") {
+      this.advance();
+      return { type: "LITERAL", value: true };
+    }
+
+    if (token.toUpperCase() === "FALSE") {
+      this.advance();
+      return { type: "LITERAL", value: false };
+    }
+
+    // Function or column
+    const name = this.advance()!;
+
+    // Check if it's a function call
+    if (this.peek() === "(") {
+      this.advance();
+      const args = [];
+
+      while (this.peek() !== ")") {
+        args.push(this.parseLogicalOr());
+        if (this.peek() === ",") this.advance();
+      }
+
+      this.consume(")", "Expected )");
+
+      return {
+        type: "FUNCTION",
+        name: name.toUpperCase(),
+        args,
+      };
+    }
+
+    // Column reference
+    return {
+      type: "COLUMN",
+      name,
+    };
+  }
+
   private parseValue(): any {
     const token = this.peek();
 
@@ -307,7 +628,7 @@ export class Parser {
       return { type: "PARAMETER", position: 0 };
     }
 
-    if (token?.startsWith("'") || token?.startsWith('"')) {
+    if (token?.startsWith("'") || token?.startsWith(`"`)) {
       const str = this.advance()!;
       return str.substring(1, str.length - 1); // Remove quotes
     }

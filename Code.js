@@ -213,7 +213,7 @@ class CreateTableExecutor {
                 throw new Error(`Table ${table} already exists`);
             }
             // Create sheet and add header row
-            const columnNames = columns.map((c) => c.name);
+            const columnNames = columns.map(c => c.name);
             adapter.createSheet(table, columnNames);
             // Build schema and persist
             const sheetId = adapter.getSheetId(table);
@@ -224,7 +224,7 @@ class CreateTableExecutor {
                 version: 1,
                 createdAt: now,
                 updatedAt: now,
-                columns: columns.map((col) => ({
+                columns: columns.map(col => ({
                     name: col.name,
                     type: col.type.toUpperCase() || "TEXT",
                     nullable: col.nullable !== false,
@@ -246,6 +246,358 @@ class CreateTableExecutor {
             _utils_logger_js__WEBPACK_IMPORTED_MODULE_2__.logger.error(`CREATE TABLE failed for ${table}`, err);
             throw err;
         }
+    }
+}
+
+
+/***/ }),
+
+/***/ "./build/executor/insert.js":
+/*!**********************************!*\
+  !*** ./build/executor/insert.js ***!
+  \**********************************/
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   InsertExecutor: () => (/* binding */ InsertExecutor)
+/* harmony export */ });
+/* harmony import */ var _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../adapter/sheets.js */ "./build/adapter/sheets.js");
+/* harmony import */ var _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../utils/logger.js */ "./build/utils/logger.js");
+/**
+ * INSERT statement executor.
+ */
+
+
+class InsertExecutor {
+    constructor(context) {
+        this.context = context;
+    }
+    executeSync(stmt) {
+        var _a;
+        const { table, columns, values } = stmt;
+        try {
+            const adapter = new _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__.SheetsAdapter({
+                spreadsheet: this.context.spreadsheet,
+            });
+            // Check table exists
+            if (!adapter.sheetExists(table)) {
+                throw new Error(`Table ${table} does not exist`);
+            }
+            // Read schema for the table
+            const schema = this.context.schemas.get(table);
+            if (!schema) {
+                throw new Error(`Schema for table ${table} not found`);
+            }
+            // Get current data to find last row
+            const currentData = adapter.readRangeSync(table);
+            const headerRow = currentData[0] || [];
+            // Build rows to insert
+            const rowsToInsert = [];
+            for (const valueRow of values) {
+                const insertedRow = [];
+                if (columns) {
+                    // Map specified columns to values
+                    const row = new Array(headerRow.length).fill("");
+                    for (let i = 0; i < columns.length; i++) {
+                        const colName = columns[i];
+                        const colIndex = headerRow.indexOf(colName);
+                        if (colIndex === -1) {
+                            throw new Error(`Column ${colName} not found in table ${table}`);
+                        }
+                        row[colIndex] = String((_a = valueRow[i]) !== null && _a !== void 0 ? _a : "");
+                    }
+                    insertedRow.push(...row);
+                }
+                else {
+                    // All columns in order
+                    if (valueRow.length !== headerRow.length) {
+                        throw new Error(`Expected ${headerRow.length} values, got ${valueRow.length}`);
+                    }
+                    insertedRow.push(...valueRow.map((v) => String(v !== null && v !== void 0 ? v : "")));
+                }
+                rowsToInsert.push(insertedRow);
+            }
+            // Append rows to sheet
+            adapter.appendRowsSync(table, rowsToInsert);
+            // Return result
+            const lastInsertRowId = currentData.length + rowsToInsert.length;
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.info(`Inserted ${rowsToInsert.length} rows into ${table}`);
+            return {
+                columns: [],
+                rows: [],
+                affectedRowCount: rowsToInsert.length,
+                lastInsertRowId,
+            };
+        }
+        catch (err) {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.error(`INSERT failed for ${table}`, err);
+            throw err;
+        }
+    }
+}
+
+
+/***/ }),
+
+/***/ "./build/executor/select.js":
+/*!**********************************!*\
+  !*** ./build/executor/select.js ***!
+  \**********************************/
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   SelectExecutor: () => (/* binding */ SelectExecutor)
+/* harmony export */ });
+/* harmony import */ var _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../adapter/sheets.js */ "./build/adapter/sheets.js");
+/* harmony import */ var _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../utils/logger.js */ "./build/utils/logger.js");
+/**
+ * SELECT statement executor.
+ * Supports: SELECT *, WHERE, ORDER BY, LIMIT, OFFSET
+ */
+
+
+class SelectExecutor {
+    constructor(context) {
+        this.context = context;
+    }
+    executeSync(stmt) {
+        const { from: tableName, where, orderBy, limit, offset } = stmt;
+        try {
+            const adapter = new _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__.SheetsAdapter({
+                spreadsheet: this.context.spreadsheet,
+            });
+            // Check table exists
+            if (!adapter.sheetExists(tableName)) {
+                throw new Error(`Table ${tableName} does not exist`);
+            }
+            // Read all data
+            const allData = adapter.readRangeSync(tableName);
+            if (allData.length === 0) {
+                throw new Error(`Table ${tableName} is empty`);
+            }
+            const headers = allData[0];
+            let rows = allData.slice(1);
+            // Apply WHERE filter
+            if (where) {
+                rows = this.filterRows(rows, headers, where);
+            }
+            // Apply ORDER BY
+            if (orderBy && orderBy.length > 0) {
+                rows = this.sortRows(rows, headers, orderBy);
+            }
+            // Apply OFFSET
+            if (offset && offset > 0) {
+                rows = rows.slice(offset);
+            }
+            // Apply LIMIT
+            if (limit && limit > 0) {
+                rows = rows.slice(0, limit);
+            }
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.info(`Selected ${rows.length} rows from ${tableName}`);
+            return {
+                columns: headers,
+                rows: rows,
+                affectedRowCount: 0,
+            };
+        }
+        catch (err) {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.error(`SELECT failed for ${tableName}`, err);
+            throw err;
+        }
+    }
+    filterRows(rows, headers, where) {
+        return rows.filter((row) => this.isTruthy(this.evaluateExpression(row, headers, where.expr)));
+    }
+    evaluateExpression(row, headers, expr) {
+        if (expr.type === "LITERAL") {
+            return expr.value;
+        }
+        if (expr.type === "COLUMN") {
+            return this.getExpressionValue(row, headers, expr);
+        }
+        if (expr.type === "PAREN") {
+            return this.evaluateExpression(row, headers, expr.expr);
+        }
+        if (expr.type === "UNARY_OP") {
+            const val = this.getExpressionValue(row, headers, expr.operand);
+            switch (expr.op.toUpperCase()) {
+                case "NOT":
+                    return !this.isTruthy(val);
+                case "-":
+                    return -Number(val);
+                case "+":
+                    return Number(val);
+                default:
+                    throw new Error(`Unsupported unary operator: ${expr.op}`);
+            }
+        }
+        if (expr.type === "BINARY_OP") {
+            const op = expr.op.toUpperCase();
+            // Logical operators
+            if (op === "AND") {
+                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left)) &&
+                    this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
+            }
+            if (op === "OR") {
+                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left)) ||
+                    this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
+            }
+            // Comparison operators
+            const leftVal = this.getExpressionValue(row, headers, expr.left);
+            const rightVal = this.getExpressionValue(row, headers, expr.right);
+            switch (op) {
+                case "=":
+                    return leftVal === rightVal;
+                case "!=":
+                case "<>":
+                    return leftVal !== rightVal;
+                case ">":
+                    return Number(leftVal) > Number(rightVal);
+                case ">=":
+                    return Number(leftVal) >= Number(rightVal);
+                case "<":
+                    return Number(leftVal) < Number(rightVal);
+                case "<=":
+                    return Number(leftVal) <= Number(rightVal);
+                case "LIKE":
+                    return String(leftVal).includes(String(rightVal).replace(/%/g, ""));
+                case "IS":
+                    return leftVal === rightVal;
+                case "IS NOT":
+                    return leftVal !== rightVal;
+                case "+":
+                    return Number(leftVal) + Number(rightVal);
+                case "-":
+                    return Number(leftVal) - Number(rightVal);
+                case "*":
+                    return Number(leftVal) * Number(rightVal);
+                case "/":
+                    return Number(leftVal) / Number(rightVal);
+                default:
+                    throw new Error(`Unsupported operator: ${op}`);
+            }
+        }
+        throw new Error(`Unsupported expression type: ${expr.type}`);
+    }
+    getExpressionValue(row, headers, expr) {
+        if (expr.type === "LITERAL") {
+            return expr.value;
+        }
+        if (expr.type === "COLUMN") {
+            const colIndex = headers.indexOf(expr.name);
+            if (colIndex === -1) {
+                throw new Error(`Column ${expr.name} not found`);
+            }
+            return row[colIndex];
+        }
+        if (expr.type === "PAREN") {
+            return this.getExpressionValue(row, headers, expr.expr);
+        }
+        if (expr.type === "UNARY_OP") {
+            const val = this.getExpressionValue(row, headers, expr.operand);
+            switch (expr.op.toUpperCase()) {
+                case "NOT":
+                    return !this.isTruthy(val);
+                case "-":
+                    return -Number(val);
+                case "+":
+                    return Number(val);
+                default:
+                    return val;
+            }
+        }
+        if (expr.type === "BINARY_OP") {
+            const op = expr.op.toUpperCase();
+            const leftVal = this.getExpressionValue(row, headers, expr.left);
+            const rightVal = this.getExpressionValue(row, headers, expr.right);
+            switch (op) {
+                case "+":
+                    return Number(leftVal) + Number(rightVal);
+                case "-":
+                    return Number(leftVal) - Number(rightVal);
+                case "*":
+                    return Number(leftVal) * Number(rightVal);
+                case "/":
+                    return Number(rightVal) !== 0 ? Number(leftVal) / Number(rightVal) : null;
+                case "AND":
+                    return this.isTruthy(leftVal) && this.isTruthy(rightVal);
+                case "OR":
+                    return this.isTruthy(leftVal) || this.isTruthy(rightVal);
+                default:
+                    return null;
+            }
+        }
+        if (expr.type === "FUNCTION") {
+            return this.evaluateFunction(row, headers, expr);
+        }
+        throw new Error(`Unsupported expression type: ${expr.type}`);
+    }
+    evaluateFunction(row, headers, expr) {
+        var _a, _b, _c, _d, _e;
+        const name = expr.name.toUpperCase();
+        const args = expr.args.map((arg) => this.getExpressionValue(row, headers, arg));
+        switch (name) {
+            case "UPPER":
+                return String((_a = args[0]) !== null && _a !== void 0 ? _a : "").toUpperCase();
+            case "LOWER":
+                return String((_b = args[0]) !== null && _b !== void 0 ? _b : "").toLowerCase();
+            case "LENGTH":
+            case "LEN":
+                return String((_c = args[0]) !== null && _c !== void 0 ? _c : "").length;
+            case "TRIM":
+                return String((_d = args[0]) !== null && _d !== void 0 ? _d : "").trim();
+            case "SUBSTR":
+            case "SUBSTRING":
+                return String((_e = args[0]) !== null && _e !== void 0 ? _e : "").substring(Number(args[1] || 0), Number(args[2]));
+            case "ABS":
+                return Math.abs(Number(args[0] || 0));
+            case "ROUND":
+                return Math.round(Number(args[0] || 0));
+            case "COALESCE":
+                return args.find((v) => v !== null && v !== undefined && v !== "");
+            default:
+                throw new Error(`Unsupported function: ${name}`);
+        }
+    }
+    sortRows(rows, headers, orderBy) {
+        return rows.sort((a, b) => {
+            for (const order of orderBy) {
+                const colIndex = headers.indexOf(order.column);
+                if (colIndex === -1) {
+                    continue;
+                }
+                const aVal = a[colIndex];
+                const bVal = b[colIndex];
+                // Try numeric comparison first
+                const aNum = Number(aVal);
+                const bNum = Number(bVal);
+                let cmp = 0;
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    cmp = aNum - bNum;
+                }
+                else {
+                    cmp = String(aVal).localeCompare(String(bVal));
+                }
+                if (cmp !== 0) {
+                    return order.desc ? -cmp : cmp;
+                }
+            }
+            return 0;
+        });
+    }
+    isTruthy(value) {
+        if (value === null || value === undefined || value === "") {
+            return false;
+        }
+        if (typeof value === "number") {
+            return value !== 0;
+        }
+        if (typeof value === "boolean") {
+            return value;
+        }
+        return true;
     }
 }
 
@@ -302,7 +654,7 @@ class Parser {
                 continue;
             }
             // Handle strings
-            if (char === "'" || char === '"') {
+            if (char === "'" || char === `"`) {
                 const quote = char;
                 let j = i + 1;
                 while (j < sql.length && sql[j] !== quote) {
@@ -314,8 +666,17 @@ class Parser {
                 i = j + 1;
                 continue;
             }
-            // Handle symbols
-            if (/[(),;?]/.test(char)) {
+            // Handle multi-char operators
+            if (i + 1 < sql.length) {
+                const twoChar = sql.substring(i, i + 2);
+                if (["<=", ">=", "<>", "!=", "=="].indexOf(twoChar) !== -1) {
+                    tokens.push(twoChar);
+                    i += 2;
+                    continue;
+                }
+            }
+            // Handle single-char operators
+            if (/[(),;?<>=+\-*/]/.test(char)) {
                 tokens.push(char);
                 i++;
                 continue;
@@ -438,18 +799,91 @@ class Parser {
         };
     }
     parseSelect() {
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         this.consume("SELECT", "Expected SELECT");
-        // Simplified: only support SELECT *
+        // Parse columns (simplified: only support SELECT *)
+        const columns = [];
         if (this.peek() === "*") {
             this.advance();
+            columns.push({ expr: { type: "STAR" } });
+        }
+        else {
+            // Support SELECT col1, col2, ... in future
+            columns.push({ expr: { type: "STAR" } });
         }
         this.consume("FROM", "Expected FROM");
         const tableName = this.advance();
+        // Parse WHERE clause
+        let where;
+        if (((_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase()) === "WHERE") {
+            this.advance();
+            where = {
+                expr: this.parseLogicalOr(),
+            };
+        }
+        // Parse GROUP BY clause
+        let groupBy;
+        if (((_b = this.peek()) === null || _b === void 0 ? void 0 : _b.toUpperCase()) === "GROUP") {
+            this.advance();
+            this.consume("BY", "Expected BY");
+            groupBy = [];
+            while (true) {
+                groupBy.push(this.advance());
+                if (this.peek() !== ",")
+                    break;
+                this.advance();
+            }
+        }
+        // Parse HAVING clause
+        let having;
+        if (((_c = this.peek()) === null || _c === void 0 ? void 0 : _c.toUpperCase()) === "HAVING") {
+            this.advance();
+            having = this.parseLogicalOr();
+        }
+        // Parse ORDER BY clause
+        let orderBy;
+        if (((_d = this.peek()) === null || _d === void 0 ? void 0 : _d.toUpperCase()) === "ORDER") {
+            this.advance();
+            this.consume("BY", "Expected BY");
+            orderBy = [];
+            while (true) {
+                const column = this.advance();
+                const desc = ((_e = this.peek()) === null || _e === void 0 ? void 0 : _e.toUpperCase()) === "DESC";
+                if (desc) {
+                    this.advance();
+                }
+                else if (((_f = this.peek()) === null || _f === void 0 ? void 0 : _f.toUpperCase()) === "ASC") {
+                    this.advance();
+                }
+                orderBy.push({ column, desc: !!desc });
+                if (this.peek() !== ",")
+                    break;
+                this.advance();
+            }
+        }
+        // Parse LIMIT clause
+        let limit;
+        if (((_g = this.peek()) === null || _g === void 0 ? void 0 : _g.toUpperCase()) === "LIMIT") {
+            this.advance();
+            limit = parseInt(this.advance());
+        }
+        // Parse OFFSET clause
+        let offset;
+        if (((_h = this.peek()) === null || _h === void 0 ? void 0 : _h.toUpperCase()) === "OFFSET") {
+            this.advance();
+            offset = parseInt(this.advance());
+        }
         return {
             type: "SELECT",
             stmt: {
-                columns: [{ expr: { type: "STAR" } }],
+                columns,
                 from: tableName,
+                where,
+                groupBy,
+                having,
+                orderBy,
+                limit,
+                offset,
             },
         };
     }
@@ -529,13 +963,219 @@ class Parser {
             },
         };
     }
+    /**
+     * Expression parsing using operator precedence (recursive descent)
+     * Precedence (lowest to highest):
+     * 1. OR
+     * 2. AND
+     * 3. =, !=, <>, <, >, <=, >=, LIKE, IN, IS
+     * 4. +, -
+     * 5. *, /
+     * 6. Primary (literals, columns, parens, functions)
+     */
+    parseLogicalOr() {
+        var _a;
+        let expr = this.parseLogicalAnd();
+        while (((_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase()) === "OR") {
+            this.advance();
+            const right = this.parseLogicalAnd();
+            expr = {
+                type: "BINARY_OP",
+                op: "OR",
+                left: expr,
+                right,
+            };
+        }
+        return expr;
+    }
+    parseLogicalAnd() {
+        var _a;
+        let expr = this.parseComparison();
+        while (((_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase()) === "AND") {
+            this.advance();
+            const right = this.parseComparison();
+            expr = {
+                type: "BINARY_OP",
+                op: "AND",
+                left: expr,
+                right,
+            };
+        }
+        return expr;
+    }
+    parseComparison() {
+        var _a, _b;
+        let expr = this.parseAdditive();
+        const op = (_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase();
+        if (op === "=" ||
+            op === "!=" ||
+            op === "<>" ||
+            op === "<" ||
+            op === ">" ||
+            op === "<=" ||
+            op === ">=" ||
+            op === "LIKE" ||
+            op === "IN" ||
+            op === "IS") {
+            this.advance();
+            const right = this.parseAdditive();
+            expr = {
+                type: "BINARY_OP",
+                op,
+                left: expr,
+                right,
+            };
+            // Handle IS NULL / IS NOT NULL
+            if (op === "IS" && ((_b = this.peek()) === null || _b === void 0 ? void 0 : _b.toUpperCase()) === "NOT") {
+                this.advance();
+                const notNull = this.advance();
+                expr = {
+                    type: "BINARY_OP",
+                    op: "IS NOT",
+                    left: expr,
+                    right: { type: "LITERAL", value: notNull },
+                };
+            }
+        }
+        return expr;
+    }
+    parseAdditive() {
+        let expr = this.parseMultiplicative();
+        while (true) {
+            const op = this.peek();
+            if (op === "+" || op === "-") {
+                this.advance();
+                const right = this.parseMultiplicative();
+                expr = {
+                    type: "BINARY_OP",
+                    op,
+                    left: expr,
+                    right,
+                };
+            }
+            else {
+                break;
+            }
+        }
+        return expr;
+    }
+    parseMultiplicative() {
+        let expr = this.parseUnary();
+        while (true) {
+            const op = this.peek();
+            if (op === "*" || op === "/") {
+                this.advance();
+                const right = this.parseUnary();
+                expr = {
+                    type: "BINARY_OP",
+                    op,
+                    left: expr,
+                    right,
+                };
+            }
+            else {
+                break;
+            }
+        }
+        return expr;
+    }
+    parseUnary() {
+        const op = this.peek();
+        if (op === "-" || op === "+") {
+            this.advance();
+            const expr = this.parseUnary();
+            return {
+                type: "UNARY_OP",
+                op,
+                operand: expr,
+            };
+        }
+        if ((op === null || op === void 0 ? void 0 : op.toUpperCase()) === "NOT") {
+            this.advance();
+            const expr = this.parseUnary();
+            return {
+                type: "UNARY_OP",
+                op: "NOT",
+                operand: expr,
+            };
+        }
+        return this.parsePrimary();
+    }
+    parsePrimary() {
+        const token = this.peek();
+        if (!token) {
+            throw new Error("Unexpected end of expression");
+        }
+        // Parenthesized expression
+        if (token === "(") {
+            this.advance();
+            const expr = this.parseLogicalOr();
+            this.consume(")", "Expected )");
+            return {
+                type: "PAREN",
+                expr,
+            };
+        }
+        // Literal values
+        if (token.startsWith("'") || token.startsWith(`"`)) {
+            const str = this.advance();
+            return {
+                type: "LITERAL",
+                value: str.substring(1, str.length - 1),
+            };
+        }
+        // Numbers
+        if (/^\d+(\.\d+)?$/.test(token)) {
+            const num = this.advance();
+            return {
+                type: "LITERAL",
+                value: /\./.test(num) ? parseFloat(num) : parseInt(num, 10),
+            };
+        }
+        // Keywords as literals
+        if (token.toUpperCase() === "NULL") {
+            this.advance();
+            return { type: "LITERAL", value: null };
+        }
+        if (token.toUpperCase() === "TRUE") {
+            this.advance();
+            return { type: "LITERAL", value: true };
+        }
+        if (token.toUpperCase() === "FALSE") {
+            this.advance();
+            return { type: "LITERAL", value: false };
+        }
+        // Function or column
+        const name = this.advance();
+        // Check if it's a function call
+        if (this.peek() === "(") {
+            this.advance();
+            const args = [];
+            while (this.peek() !== ")") {
+                args.push(this.parseLogicalOr());
+                if (this.peek() === ",")
+                    this.advance();
+            }
+            this.consume(")", "Expected )");
+            return {
+                type: "FUNCTION",
+                name: name.toUpperCase(),
+                args,
+            };
+        }
+        // Column reference
+        return {
+            type: "COLUMN",
+            name,
+        };
+    }
     parseValue() {
         const token = this.peek();
         if (token === "?") {
             this.advance();
             return { type: "PARAMETER", position: 0 };
         }
-        if ((token === null || token === void 0 ? void 0 : token.startsWith("'")) || (token === null || token === void 0 ? void 0 : token.startsWith('"'))) {
+        if ((token === null || token === void 0 ? void 0 : token.startsWith("'")) || (token === null || token === void 0 ? void 0 : token.startsWith(`"`))) {
             const str = this.advance();
             return str.substring(1, str.length - 1); // Remove quotes
         }
@@ -722,9 +1362,11 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   RequestHandler: () => (/* binding */ RequestHandler)
 /* harmony export */ });
 /* harmony import */ var _executor_create_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../executor/create.js */ "./build/executor/create.js");
-/* harmony import */ var _parser_parser_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../parser/parser.js */ "./build/parser/parser.js");
-/* harmony import */ var _schema_manager_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../schema/manager.js */ "./build/schema/manager.js");
-/* harmony import */ var _utils_logger_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ../utils/logger.js */ "./build/utils/logger.js");
+/* harmony import */ var _executor_insert_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../executor/insert.js */ "./build/executor/insert.js");
+/* harmony import */ var _executor_select_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../executor/select.js */ "./build/executor/select.js");
+/* harmony import */ var _parser_parser_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ../parser/parser.js */ "./build/parser/parser.js");
+/* harmony import */ var _schema_manager_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ../schema/manager.js */ "./build/schema/manager.js");
+/* harmony import */ var _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ../utils/logger.js */ "./build/utils/logger.js");
 /**
  * HTTP request handler for SQL execution.
  * Entry point for doPost() requests.
@@ -733,18 +1375,20 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
+
+
 class RequestHandler {
     handle(body) {
         const requestId = this.generateRequestId();
-        _utils_logger_js__WEBPACK_IMPORTED_MODULE_3__.logger.setContext({ requestId });
+        _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.setContext({ requestId });
         try {
             const request = JSON.parse(body);
-            _utils_logger_js__WEBPACK_IMPORTED_MODULE_3__.logger.debug("Parsed request", {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.debug("Parsed request", {
                 statementCount: request.statements.length,
             });
             // Get execution context
             const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-            const schemaManager = new _schema_manager_js__WEBPACK_IMPORTED_MODULE_2__.SchemaManager({ spreadsheet });
+            const schemaManager = new _schema_manager_js__WEBPACK_IMPORTED_MODULE_4__.SchemaManager({ spreadsheet });
             const schemas = schemaManager.loadSchemasSync();
             const context = {
                 spreadsheet,
@@ -771,7 +1415,7 @@ class RequestHandler {
             return JSON.stringify(response);
         }
         catch (err) {
-            _utils_logger_js__WEBPACK_IMPORTED_MODULE_3__.logger.error("Request handling failed", err);
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.error("Request handling failed", err);
             const error = err instanceof Error ? err : new Error(String(err));
             const errorResponse = {
                 success: false,
@@ -785,10 +1429,10 @@ class RequestHandler {
         }
     }
     executeStatementSync(sql, context) {
-        _utils_logger_js__WEBPACK_IMPORTED_MODULE_3__.logger.debug("Executing statement", { sql: sql.substring(0, 100) });
+        _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.debug("Executing statement", { sql: sql.substring(0, 100) });
         try {
             // Parse
-            const statements = _parser_parser_js__WEBPACK_IMPORTED_MODULE_1__.parser.parse(sql);
+            const statements = _parser_parser_js__WEBPACK_IMPORTED_MODULE_3__.parser.parse(sql);
             if (statements.length === 0) {
                 throw new Error("No valid SQL statement found");
             }
@@ -798,6 +1442,14 @@ class RequestHandler {
                 case "CREATE_TABLE": {
                     const createExec = new _executor_create_js__WEBPACK_IMPORTED_MODULE_0__.CreateTableExecutor(context);
                     return createExec.executeSync(stmt.stmt);
+                }
+                case "INSERT": {
+                    const insertExec = new _executor_insert_js__WEBPACK_IMPORTED_MODULE_1__.InsertExecutor(context);
+                    return insertExec.executeSync(stmt.stmt);
+                }
+                case "SELECT": {
+                    const selectExec = new _executor_select_js__WEBPACK_IMPORTED_MODULE_2__.SelectExecutor(context);
+                    return selectExec.executeSync(stmt.stmt);
                 }
                 case "BEGIN":
                     context.inTransaction = true;
@@ -816,7 +1468,7 @@ class RequestHandler {
             }
         }
         catch (err) {
-            _utils_logger_js__WEBPACK_IMPORTED_MODULE_3__.logger.error("Statement execution failed", err);
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.error("Statement execution failed", err);
             throw err;
         }
     }

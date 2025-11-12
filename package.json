@@ -7,6 +7,8 @@
     "build": "rm -rf build && tsc && webpack",
     "push": "npm run build && clasp push -f",
     "deploy": "npm run push && clasp deploy",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
     "lint": "eslint src --ext .ts",
     "lint:critical": "eslint src --quiet --ext .ts",
     "lint:fix": "prettier . --write",
@@ -28,6 +30,7 @@
     "gas-webpack-plugin": "^2.6.0",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3",
+    "vitest": "^4.0.8",
     "webpack": "^5.99.9",
     "webpack-cli": "^6.0.1"
   }
