@@ -24,8 +24,8 @@ export class SelectExecutor {
    */
   private hasAggregateFunction(selectColumns: any[]): boolean {
     return selectColumns.some(col =>
-      col.expr.type === "FUNCTION" &&
-      ["COUNT", "SUM", "AVG", "MIN", "MAX"].includes(col.expr.name.toUpperCase())
+      col.expr.type === "FUNCTION"
+      && ["COUNT", "SUM", "AVG", "MIN", "MAX"].includes(col.expr.name.toUpperCase()),
     );
   }
 
@@ -204,12 +204,14 @@ export class SelectExecutor {
         rows = rows.map((row: any[]) => {
           return row.map((value, idx) => {
             const columnName = selectedColumns[idx];
-            if (!columnName) return value;
+            if (!columnName)
+              return value;
 
             const colDef = schema.columns.find(
-              (c) => c.name === columnName
+              c => c.name === columnName,
             );
-            if (!colDef) return value;
+            if (!colDef)
+              return value;
 
             // Convert based on column type
             if (value === null || value === undefined || value === "") {

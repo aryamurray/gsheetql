@@ -23,8 +23,22 @@
       "outputs": [],
       "cache": false
     },
+    "lint:fix": {
+      "outputs": [],
+      "cache": false
+    },
     "type-check": {
       "dependsOn": ["^build"],
+      "outputs": [],
+      "cache": false
+    },
+    "push": {
+      "dependsOn": ["build", "lint", "type-check"],
+      "outputs": [],
+      "cache": false
+    },
+    "deploy": {
+      "dependsOn": ["push"],
       "outputs": [],
       "cache": false
     },

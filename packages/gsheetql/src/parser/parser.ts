@@ -51,7 +51,8 @@ export class Parser {
         const quote = char;
         let j = i + 1;
         while (j < sql.length && sql[j] !== quote) {
-          if (sql[j] === "\\") j++; // Handle escaped quotes
+          if (sql[j] === "\\")
+            j++; // Handle escaped quotes
           j++;
         }
         tokens.push(sql.substring(i, j + 1));
@@ -81,9 +82,9 @@ export class Parser {
       }
 
       // Handle words and identifiers (including hyphens and dots for qualified names)
-      if (/[a-zA-Z_]/.test(char)) {
+      if (/[a-z_]/i.test(char)) {
         let j = i;
-        while (j < sql.length && /[a-zA-Z0-9_.-]/.test(sql[j])) {
+        while (j < sql.length && /[\w.-]/.test(sql[j])) {
           j++;
         }
         tokens.push(sql.substring(i, j));
@@ -154,7 +155,8 @@ export class Parser {
       if (this.peek() === "*") {
         // COUNT(*) special case
         this.advance();
-      } else {
+      }
+ else {
         while (this.peek() !== ")") {
           const argToken = this.peek();
           if (!argToken) {
@@ -228,17 +230,21 @@ export class Parser {
             this.advance();
             nullable = false;
           }
-        } else if (constraint === "PRIMARY") {
+        }
+ else if (constraint === "PRIMARY") {
           this.advance();
           this.consume("KEY", "Expected KEY");
           primaryKey = true;
-        } else if (constraint === "UNIQUE") {
+        }
+ else if (constraint === "UNIQUE") {
           this.advance();
           unique = true;
-        } else if (constraint === "DEFAULT") {
+        }
+ else if (constraint === "DEFAULT") {
           this.advance();
           defaultValue = this.parseValue();
-        } else {
+        }
+ else {
           break;
         }
       }
@@ -280,7 +286,8 @@ export class Parser {
     if (this.peek() === "*") {
       this.advance();
       columns.push({ expr: { type: "STAR" } as const });
-    } else {
+    }
+ else {
       // Parse specific columns: col1, col2, COUNT(*), SUM(salary), COUNT(*) as count, etc.
       while (true) {
         const colToken = this.peek();
@@ -296,7 +303,8 @@ export class Parser {
         if (this.peek()?.toUpperCase() === "AS") {
           this.advance();
           alias = this.advance()!;
-        } else if (this.peek() && !this.peek()!.match(/^[,()]/)) {
+        }
+ else if (this.peek() && !this.peek()!.match(/^[,()]/)) {
           // Implicit alias (no AS keyword) - but only if next token isn't a comma or FROM
           const nextToken = this.peek()?.toUpperCase();
           if (nextToken && nextToken !== "FROM" && nextToken !== "WHERE" && nextToken !== "GROUP" && nextToken !== "ORDER" && nextToken !== "LIMIT" && nextToken !== "OFFSET") {
@@ -312,7 +320,8 @@ export class Parser {
         // Check for comma (multiple columns)
         if (this.peek() === ",") {
           this.advance();
-        } else {
+        }
+ else {
           break;
         }
       }
@@ -342,7 +351,8 @@ export class Parser {
       groupBy = [];
       while (true) {
         groupBy.push(this.advance()!);
-        if (this.peek() !== ",") break;
+        if (this.peek() !== ",")
+          break;
         this.advance();
       }
     }
@@ -365,11 +375,13 @@ export class Parser {
         const desc = this.peek()?.toUpperCase() === "DESC";
         if (desc) {
           this.advance();
-        } else if (this.peek()?.toUpperCase() === "ASC") {
+        }
+ else if (this.peek()?.toUpperCase() === "ASC") {
           this.advance();
         }
         orderBy.push({ column, desc: !!desc });
-        if (this.peek() !== ",") break;
+        if (this.peek() !== ",")
+          break;
         this.advance();
       }
     }
@@ -415,7 +427,8 @@ export class Parser {
       columns = [];
       while (this.peek() !== ")") {
         columns.push(this.advance()!);
-        if (this.peek() === ",") this.advance();
+        if (this.peek() === ",")
+          this.advance();
       }
       this.consume(")", "Expected )");
     }
@@ -428,7 +441,8 @@ export class Parser {
       const row = [];
       while (this.peek() !== ")") {
         row.push(this.parseValue());
-        if (this.peek() === ",") this.advance();
+        if (this.peek() === ",")
+          this.advance();
       }
       this.consume(")", "Expected )");
       values.push(row);
@@ -463,7 +477,8 @@ export class Parser {
 
       if (this.peek() === ",") {
         this.advance();
-      } else {
+      }
+ else {
         break;
       }
     }
@@ -585,7 +600,8 @@ export class Parser {
             left: expr,
             right,
           };
-        } else {
+        }
+ else {
           const right = this.parseAdditive();
           expr = {
             type: "BINARY_OP",
@@ -594,7 +610,8 @@ export class Parser {
             right,
           };
         }
-      } else {
+      }
+ else {
         const right = this.parseAdditive();
         expr = {
           type: "BINARY_OP",
@@ -622,7 +639,8 @@ export class Parser {
           left: expr,
           right,
         };
-      } else {
+      }
+ else {
         break;
       }
     }
@@ -644,7 +662,8 @@ export class Parser {
           left: expr,
           right,
         };
-      } else {
+      }
+ else {
         break;
       }
     }
@@ -746,7 +765,8 @@ export class Parser {
 
       while (this.peek() !== ")") {
         args.push(this.parseLogicalOr());
-        if (this.peek() === ",") this.advance();
+        if (this.peek() === ",")
+          this.advance();
       }
 
       this.consume(")", "Expected )");
