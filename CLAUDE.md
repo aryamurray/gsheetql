@@ -17,6 +17,24 @@ This project implements a SQL interface for Google Apps Script, enabling SQL que
 - Google Apps Script runtime with clasp for deployment
 - HTTP interface compatible with libsql server protocol
 
+## Implementation Tracking
+
+Feature implementation progress is tracked in **IMPLEMENT.md**. When completing features:
+
+1. **Before starting work:** Review IMPLEMENT.md for which features are marked complete
+2. **After completing a feature:** Update IMPLEMENT.md by changing `[ ]` to `[x]` for completed items
+3. **In commit messages:** Reference which features were implemented (e.g., "add GROUP BY support")
+4. **Priorities:** Features are organized by priority (High/Medium/Low) - focus on High Priority first
+
+**Example workflow:**
+```
+# Feature: Add GROUP BY support
+1. Implement in code
+2. Add tests
+3. Update IMPLEMENT.md: change "[ ] GROUP BY clause" to "[x] GROUP BY clause"
+4. Commit with message: "implement GROUP BY and aggregate functions"
+```
+
 ## Architecture
 
 ### High-Level Design
@@ -414,13 +432,19 @@ Convert strings back to appropriate JSON types based on SQL type:
 
 ```typescript
 function convertToJSON(value: string, sqlType: SQLiteType): unknown {
-  if (value === '') return null; // NULL handling
-  
+  // NULL semantics: empty strings, null, undefined all represent SQL NULL
+  // Return JSON null for NULL values
+  if (value === '' || value === null || value === undefined) {
+    return null;
+  }
+
   switch (sqlType) {
     case 'INTEGER':
-      return parseInt(value, 10);
+      const intVal = parseInt(value, 10);
+      return !isNaN(intVal) ? intVal : value;
     case 'REAL':
-      return parseFloat(value);
+      const floatVal = parseFloat(value);
+      return !isNaN(floatVal) ? floatVal : value;
     case 'TEXT':
       return value;
     case 'BLOB':
@@ -432,6 +456,11 @@ function convertToJSON(value: string, sqlType: SQLiteType): unknown {
   }
 }
 ```
+
+**Key Point:** While Google Sheets stores NULL as empty strings internally, the HTTP API returns `null` (JSON null) for NULL values. This provides:
+- Type-safe JavaScript clients (use `=== null` to check for NULL)
+- Standard REST API behavior (matches other SQL databases)
+- Proper JSON semantics for clients
 
 ### Type Inference
 

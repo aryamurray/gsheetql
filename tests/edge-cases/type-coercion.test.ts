@@ -3,7 +3,11 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { initializeClient, generateTableName, getColumnIndex } from "../fixtures/setup.js";
+import {
+  initializeClient,
+  generateTableName,
+  getColumnIndex,
+} from "../fixtures/setup.js";
 
 let tableName: string;
 
@@ -44,7 +48,9 @@ describe("Type Coercion and Conversions", () => {
     it("should handle numeric string comparisons", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE age > 25`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE age > 25`,
+      );
 
       expect(result.rows.length).toBe(2);
     });
@@ -52,7 +58,9 @@ describe("Type Coercion and Conversions", () => {
     it("should compare integers with reals", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE salary >= 75000`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE salary >= 75000`,
+      );
 
       expect(result.rows.length).toBeGreaterThanOrEqual(1);
     });
@@ -70,7 +78,9 @@ describe("Type Coercion and Conversions", () => {
     it("should order numeric values correctly", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} ORDER BY salary ASC`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} ORDER BY salary ASC`,
+      );
 
       const salaries = result.rows.map((row: any) => Number(row[4]));
       for (let i = 1; i < salaries.length; i++) {
@@ -84,7 +94,9 @@ describe("Type Coercion and Conversions", () => {
       const { client } = await import("../fixtures/setup.js");
 
       // Even though name is TEXT, "25" should convert to number for comparison
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE age > '25'`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE age > '25'`,
+      );
 
       expect(result.rows.length).toBe(2); // Bob (30), Charlie (35)
     });
@@ -92,7 +104,9 @@ describe("Type Coercion and Conversions", () => {
     it("should handle leading zeros in numbers", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`INSERT INTO ${tableName} (id, name, age) VALUES (4, 'Diana', 025)`);
+      const result = await client.query(
+        `INSERT INTO ${tableName} (id, name, age) VALUES (4, 'Diana', 025)`,
+      );
 
       // 025 in decimal is just 25
       expect(result.affectedRowCount).toBe(1);
@@ -113,7 +127,9 @@ describe("Type Coercion and Conversions", () => {
     it("should query boolean text values", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE active = 'true'`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE active = 'true'`,
+      );
 
       // Should find rows where active equals 'true' (if any were inserted)
       expect(result.rows.length).toBeGreaterThanOrEqual(0);
@@ -130,7 +146,9 @@ describe("Type Coercion and Conversions", () => {
 
       expect(result.affectedRowCount).toBe(1);
 
-      const selectResult = await client.query(`SELECT * FROM ${tableName} WHERE age = '28'`);
+      const selectResult = await client.query(
+        `SELECT * FROM ${tableName} WHERE age = '28'`,
+      );
 
       expect(selectResult.rows.length).toBeGreaterThanOrEqual(0);
     });
@@ -160,7 +178,9 @@ describe("Type Coercion and Conversions", () => {
     it("should query negative numbers", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE age = -5`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE age = -5`,
+      );
 
       // Should find rows where age equals -5 (if any were inserted)
       expect(result.rows.length).toBeGreaterThanOrEqual(0);
@@ -201,7 +221,9 @@ describe("Type Coercion and Conversions", () => {
     it("should order TEXT numbers correctly as numbers", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} ORDER BY age ASC`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} ORDER BY age ASC`,
+      );
 
       const ages = result.rows.map((row: any) => Number(row[2]));
       // Should be ordered numerically, not lexically

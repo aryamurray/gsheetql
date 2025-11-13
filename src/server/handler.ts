@@ -4,8 +4,10 @@
  */
 
 import { CreateTableExecutor } from "../executor/create.js";
+import { DeleteExecutor } from "../executor/delete.js";
 import { InsertExecutor } from "../executor/insert.js";
 import { SelectExecutor } from "../executor/select.js";
+import { UpdateExecutor } from "../executor/update.js";
 import { parser } from "../parser/parser.js";
 import { SchemaManager } from "../schema/manager.js";
 import type { ApiResponse } from "../types/common.js";
@@ -18,6 +20,25 @@ export type ExecuteRequest = {
     args?: unknown[];
   }>;
 };
+
+// Global transaction state (persists across HTTP requests)
+const transactionStates = new Map<
+  string,
+  {
+    inTransaction: boolean;
+    transactionSnapshot?: Map<string, any[][]>;
+  }
+>();
+
+// Get or create transaction state for current user
+function getTransactionState(userId: string) {
+  if (!transactionStates.has(userId)) {
+    transactionStates.set(userId, {
+      inTransaction: false,
+    });
+  }
+  return transactionStates.get(userId)!;
+}
 
 export class RequestHandler {
   handle(body: string): string {
@@ -35,16 +56,25 @@ export class RequestHandler {
       const schemaManager = new SchemaManager({ spreadsheet });
       const schemas = schemaManager.loadSchemasSync();
 
+      // Get user ID for transaction state (use current user or default)
+      const userId = Session.getActiveUser().getEmail();
+      const txState = getTransactionState(userId);
+
       const context: ExecutionContext = {
         spreadsheet,
         schemas,
-        inTransaction: false,
+        inTransaction: txState.inTransaction,
+        transactionSnapshot: txState.transactionSnapshot,
       };
 
       // Execute statements
       const results = [];
       for (const stmt of request.statements) {
-        const result = this.executeStatementSync(stmt.sql, context);
+        const result = this.executeStatementSync(
+          stmt.sql,
+          stmt.args || [],
+          context,
+        );
         results.push(result);
       }
 
@@ -78,7 +108,11 @@ export class RequestHandler {
     }
   }
 
-  private executeStatementSync(sql: string, context: ExecutionContext): any {
+  private executeStatementSync(
+    sql: string,
+    args: unknown[],
+    context: ExecutionContext,
+  ): any {
     logger.debug("Executing statement", { sql: sql.substring(0, 100) });
 
     try {
@@ -90,37 +124,105 @@ export class RequestHandler {
 
       const stmt = statements[0];
 
+      // Bind parameters
+      const boundStmt = this.bindParameters(stmt, args);
+
       // Execute based on type
-      switch (stmt.type) {
+      switch (boundStmt.type) {
         case "CREATE_TABLE": {
           const createExec = new CreateTableExecutor(context);
-          return createExec.executeSync(stmt.stmt);
+          return createExec.executeSync(boundStmt.stmt);
         }
 
         case "INSERT": {
           const insertExec = new InsertExecutor(context);
-          return insertExec.executeSync(stmt.stmt);
+          return insertExec.executeSync(boundStmt.stmt);
         }
 
         case "SELECT": {
           const selectExec = new SelectExecutor(context);
-          return selectExec.executeSync(stmt.stmt);
+          return selectExec.executeSync(boundStmt.stmt);
         }
 
-        case "BEGIN":
+        case "UPDATE": {
+          const updateExec = new UpdateExecutor(context);
+          return updateExec.executeSync(boundStmt.stmt);
+        }
+
+        case "DELETE": {
+          const deleteExec = new DeleteExecutor(context);
+          return deleteExec.executeSync(boundStmt.stmt);
+        }
+
+        case "BEGIN": {
+          const userId = Session.getActiveUser().getEmail();
+          const txState = getTransactionState(userId);
+          txState.inTransaction = true;
+          txState.transactionSnapshot = new Map();
           context.inTransaction = true;
-          context.transactionSnapshot = new Map();
+          context.transactionSnapshot = txState.transactionSnapshot;
           return { columns: [], rows: [], affectedRowCount: 0 };
+        }
 
-        case "COMMIT":
+        case "COMMIT": {
+          const userId = Session.getActiveUser().getEmail();
+          const txState = getTransactionState(userId);
+          txState.inTransaction = false;
+          txState.transactionSnapshot = undefined;
           context.inTransaction = false;
           context.transactionSnapshot = undefined;
           return { columns: [], rows: [], affectedRowCount: 0 };
+        }
 
-        case "ROLLBACK":
+        case "ROLLBACK": {
+          const userId = Session.getActiveUser().getEmail();
+          const txState = getTransactionState(userId);
+
+          // Restore all snapshots
+          if (
+            context.transactionSnapshot
+            && context.transactionSnapshot.size > 0
+          ) {
+            const snapshots = Array.from(context.transactionSnapshot.entries());
+            for (const [tableName, snapshotData] of snapshots) {
+              // Restore by writing back the snapshot
+              const sheet = context.spreadsheet.getSheetByName(tableName);
+              if (sheet && snapshotData.length > 0) {
+                try {
+                  const range = sheet.getRange(
+                    1,
+                    1,
+                    snapshotData.length,
+                    snapshotData[0]?.length || 1,
+                  );
+                  range.setValues(
+                    snapshotData as (string | number | boolean)[][],
+                  );
+
+                  // Delete any extra rows added during transaction
+                  const currentLastRow = sheet.getLastRow();
+                  if (currentLastRow > snapshotData.length) {
+                    for (let i = currentLastRow; i > snapshotData.length; i--) {
+                      sheet.deleteRow(i);
+                    }
+                  }
+
+                  logger.info(
+                    `Restored table ${tableName} from transaction snapshot`,
+                  );
+                } catch (err) {
+                  logger.error(`Failed to restore table ${tableName}`, err);
+                  throw err;
+                }
+              }
+            }
+          }
+          txState.inTransaction = false;
+          txState.transactionSnapshot = undefined;
           context.inTransaction = false;
           context.transactionSnapshot = undefined;
           return { columns: [], rows: [], affectedRowCount: 0 };
+        }
 
         default:
           throw new Error(`Statement type not yet implemented: ${stmt.type}`);
@@ -129,6 +231,45 @@ export class RequestHandler {
       logger.error("Statement execution failed", err);
       throw err;
     }
+  }
+
+  private bindParameters(stmt: any, args: unknown[]): any {
+    // Deep copy the statement to avoid mutating the original
+    const copy = JSON.parse(JSON.stringify(stmt));
+
+    // Walk the AST and replace parameter placeholders
+    const replacer = (obj: any): any => {
+      if (Array.isArray(obj)) {
+        return obj.map(replacer);
+      }
+
+      if (obj === null || typeof obj !== "object") {
+        return obj;
+      }
+
+      if (obj.type === "PARAMETER") {
+        const position = obj.position;
+        if (position >= args.length) {
+          throw new Error(
+            `Parameter ${position} not provided (got ${args.length} args)`,
+          );
+        }
+        // Convert parameter to literal
+        return {
+          type: "LITERAL",
+          value: args[position],
+        };
+      }
+
+      // Recursively process object properties
+      const result: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        result[key] = replacer(value);
+      }
+      return result;
+    };
+
+    return replacer(copy);
   }
 
   private generateRequestId(): string {

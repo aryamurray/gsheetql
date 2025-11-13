@@ -14,17 +14,12 @@ export default antfu(
   },
   {
     rules: {
-      // --- fixes for non-auto-fixable stylistic rules ---
-      "style/brace-style": "off",
-      "brace-style": ["error", "1tbs", { allowSingleLine: true }],
+      // --- stylistic rules downgraded to warnings ---
+      "brace-style": ["warn", "1tbs", { allowSingleLine: true }],
+      "arrow-parens": ["warn", "as-needed"],
+      "antfu/if-newline": "warn",
 
-      "style/arrow-parens": "off",
-      "arrow-parens": ["error", "as-needed"],
-
-      // this one cannot be autofixed at all — disable it if you want `--fix` clean runs
-      "antfu/if-newline": "off",
-
-      // --- your existing rules ---
+      // --- existing functional rules ---
       "ts/no-redeclare": "off",
       "node/file-extension-in-import": ["error", "always"],
       "ts/consistent-type-definitions": ["error", "type"],

@@ -6,12 +6,12 @@
   "scripts": {
     "build": "rm -rf build && tsc && webpack",
     "push": "npm run build && clasp push -f",
-    "deploy": "npm run push && clasp deploy",
+    "deploy": "npm run push && clasp deploy -i $(clasp deployments | grep '@HEAD' | awk '{print $2}')",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "lint": "eslint src --ext .ts",
     "lint:critical": "eslint src --quiet --ext .ts",
-    "lint:fix": "prettier . --write",
+    "lint:fix": "eslint src --ext .ts --fix",
     "login": "clasp login"
   },
   "peerDependencies": {

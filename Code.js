@@ -26,15 +26,6 @@ __webpack_require__.r(__webpack_exports__);
  * Google Sheets API adapter.
  * Batch operations only (never cell-by-cell).
  */
-var __awaiter = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 
 class SheetsAdapter {
     constructor(config) {
@@ -53,14 +44,22 @@ class SheetsAdapter {
     /**
      * Read all data from a sheet as 2D array (synchronous).
      * First row (header) is included.
+     * All values are converted to strings to match SQLite text model.
      */
     readRangeSync(tableName) {
         try {
             const sheet = this.getSheet(tableName);
             const range = sheet.getDataRange();
             const values = range.getValues();
-            _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.debug(`Read ${values.length} rows from ${tableName}`);
-            return values;
+            // Convert all values to strings (Google Sheets API returns mixed types)
+            const stringValues = values.map((row) => row.map((val) => {
+                if (val === null || val === undefined) {
+                    return "";
+                }
+                return String(val);
+            }));
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.debug(`Read ${stringValues.length} rows from ${tableName}`);
+            return stringValues;
         }
         catch (err) {
             _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.error(`Failed to read from ${tableName}`, err);
@@ -112,42 +111,60 @@ class SheetsAdapter {
      * Delete rows by indices (1-indexed).
      * Deletes in reverse order to maintain index stability.
      */
-    deleteRows(tableName, rowIndices) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (rowIndices.length === 0) {
-                return 0;
+    async deleteRows(tableName, rowIndices) {
+        if (rowIndices.length === 0) {
+            return 0;
+        }
+        try {
+            const sheet = this.getSheet(tableName);
+            const sorted = [...rowIndices].sort((a, b) => b - a);
+            for (const rowIndex of sorted) {
+                sheet.deleteRow(rowIndex);
             }
-            try {
-                const sheet = this.getSheet(tableName);
-                const sorted = [...rowIndices].sort((a, b) => b - a);
-                for (const rowIndex of sorted) {
-                    sheet.deleteRow(rowIndex);
-                }
-                _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.debug(`Deleted ${sorted.length} rows from ${tableName}`);
-                return sorted.length;
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.debug(`Deleted ${sorted.length} rows from ${tableName}`);
+            return sorted.length;
+        }
+        catch (err) {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.error(`Failed to delete from ${tableName}`, err);
+            throw err;
+        }
+    }
+    /**
+     * Delete rows by indices (1-indexed) synchronously.
+     * Deletes in reverse order to maintain index stability.
+     */
+    deleteRowsSync(tableName, rowIndices) {
+        if (rowIndices.length === 0) {
+            return 0;
+        }
+        try {
+            const sheet = this.getSheet(tableName);
+            const sorted = [...rowIndices].sort((a, b) => b - a);
+            for (const rowIndex of sorted) {
+                sheet.deleteRow(rowIndex);
             }
-            catch (err) {
-                _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.error(`Failed to delete from ${tableName}`, err);
-                throw err;
-            }
-        });
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.debug(`Deleted ${sorted.length} rows from ${tableName}`);
+            return sorted.length;
+        }
+        catch (err) {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.error(`Failed to delete from ${tableName}`, err);
+            throw err;
+        }
     }
     /**
      * Create a new sheet with header row.
      */
-    createSheet(tableName, columns) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                const sheet = this.spreadsheet.insertSheet(tableName);
-                sheet.appendRow(columns);
-                _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.debug(`Created sheet ${tableName} with ${columns.length} columns`);
-                return sheet;
-            }
-            catch (err) {
-                _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.error(`Failed to create sheet ${tableName}`, err);
-                throw err;
-            }
-        });
+    async createSheet(tableName, columns) {
+        try {
+            const sheet = this.spreadsheet.insertSheet(tableName);
+            sheet.appendRow(columns);
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.debug(`Created sheet ${tableName} with ${columns.length} columns`);
+            return sheet;
+        }
+        catch (err) {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_0__.logger.error(`Failed to create sheet ${tableName}`, err);
+            throw err;
+        }
     }
     /**
      * Check if sheet exists.
@@ -252,6 +269,233 @@ class CreateTableExecutor {
 
 /***/ }),
 
+/***/ "./build/executor/delete.js":
+/*!**********************************!*\
+  !*** ./build/executor/delete.js ***!
+  \**********************************/
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   DeleteExecutor: () => (/* binding */ DeleteExecutor)
+/* harmony export */ });
+/* harmony import */ var _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../adapter/sheets.js */ "./build/adapter/sheets.js");
+/* harmony import */ var _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../utils/logger.js */ "./build/utils/logger.js");
+/**
+ * DELETE statement executor.
+ * Supports: DELETE FROM table WHERE condition
+ */
+
+
+class DeleteExecutor {
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Extract column name from potentially qualified name (e.g., "table.column" -> "column")
+     */
+    getColumnName(qualifiedName) {
+        const parts = qualifiedName.split(".");
+        return parts[parts.length - 1]; // Return last part after dot
+    }
+    executeSync(stmt) {
+        const { table, where } = stmt;
+        try {
+            const adapter = new _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__.SheetsAdapter({
+                spreadsheet: this.context.spreadsheet,
+            });
+            // Check table exists
+            if (!adapter.sheetExists(table)) {
+                throw new Error(`Table ${table} does not exist`);
+            }
+            // Read all data
+            const allData = adapter.readRangeSync(table);
+            if (allData.length === 0) {
+                throw new Error(`Table ${table} is empty`);
+            }
+            const headers = allData[0];
+            const dataRows = allData.slice(1);
+            // Find rows to delete based on WHERE clause
+            const rowIndices = [];
+            if (where) {
+                for (let i = 0; i < dataRows.length; i++) {
+                    if (this.isTruthy(this.evaluateExpression(dataRows[i], headers, where.expr))) {
+                        rowIndices.push(i + 2); // +1 for header, +1 for 1-based indexing
+                    }
+                }
+            }
+            else {
+                // No WHERE clause - delete all rows
+                for (let i = 0; i < dataRows.length; i++) {
+                    rowIndices.push(i + 2);
+                }
+            }
+            // Save snapshot if in transaction
+            if (this.context.inTransaction && this.context.transactionSnapshot) {
+                if (!this.context.transactionSnapshot.has(table)) {
+                    this.context.transactionSnapshot.set(table, allData);
+                }
+            }
+            // Delete rows
+            const deletedCount = adapter.deleteRowsSync(table, rowIndices);
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.info(`Deleted ${deletedCount} rows from ${table}`);
+            return {
+                columns: [],
+                rows: [],
+                affectedRowCount: deletedCount,
+            };
+        }
+        catch (err) {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.error(`DELETE failed for ${table}`, err);
+            throw err;
+        }
+    }
+    evaluateExpression(row, headers, expr) {
+        if (expr.type === "LITERAL") {
+            return expr.value;
+        }
+        if (expr.type === "COLUMN") {
+            const colName = this.getColumnName(expr.name);
+            const colIndex = headers.indexOf(colName);
+            if (colIndex === -1) {
+                throw new Error(`Column ${expr.name} not found`);
+            }
+            return row[colIndex];
+        }
+        if (expr.type === "PAREN") {
+            return this.evaluateExpression(row, headers, expr.expr);
+        }
+        if (expr.type === "UNARY_OP") {
+            const val = this.evaluateExpression(row, headers, expr.operand);
+            switch (expr.op.toUpperCase()) {
+                case "NOT":
+                    return !this.isTruthy(val);
+                case "-":
+                    return -Number(val);
+                case "+":
+                    return Number(val);
+                default:
+                    throw new Error(`Unsupported unary operator: ${expr.op}`);
+            }
+        }
+        if (expr.type === "BINARY_OP") {
+            const op = expr.op.toUpperCase();
+            // Logical operators
+            if (op === "AND") {
+                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left))
+                    && this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
+            }
+            if (op === "OR") {
+                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left))
+                    || this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
+            }
+            // Comparison operators
+            const leftVal = this.evaluateExpression(row, headers, expr.left);
+            const rightVal = this.evaluateExpression(row, headers, expr.right);
+            switch (op) {
+                case "=": {
+                    // Type-aware comparison: try numeric comparison first
+                    const leftNum = Number(leftVal);
+                    const rightNum = Number(rightVal);
+                    if (!isNaN(leftNum) && !isNaN(rightNum)) {
+                        return leftNum === rightNum;
+                    }
+                    return String(leftVal) === String(rightVal);
+                }
+                case "!=":
+                case "<>": {
+                    // Type-aware comparison
+                    const leftNum = Number(leftVal);
+                    const rightNum = Number(rightVal);
+                    if (!isNaN(leftNum) && !isNaN(rightNum)) {
+                        return leftNum !== rightNum;
+                    }
+                    return String(leftVal) !== String(rightVal);
+                }
+                case ">":
+                    return Number(leftVal) > Number(rightVal);
+                case ">=":
+                    return Number(leftVal) >= Number(rightVal);
+                case "<":
+                    return Number(leftVal) < Number(rightVal);
+                case "<=":
+                    return Number(leftVal) <= Number(rightVal);
+                case "LIKE":
+                    return String(leftVal).includes(String(rightVal).replace(/%/g, ""));
+                case "IS":
+                    const leftIsNull = leftVal === null || leftVal === undefined || leftVal === "";
+                    const rightIsNull = rightVal === null || rightVal === undefined || rightVal === "";
+                    if (rightIsNull) {
+                        return leftIsNull;
+                    }
+                    return leftVal === rightVal;
+                case "IS NOT":
+                    const leftIsNotNull = !(leftVal === null
+                        || leftVal === undefined
+                        || leftVal === "");
+                    const rightIsNotNull = !(rightVal === null
+                        || rightVal === undefined
+                        || rightVal === "");
+                    if (!rightIsNotNull) {
+                        return leftIsNotNull;
+                    }
+                    return leftVal !== rightVal;
+                case "+":
+                    return Number(leftVal) + Number(rightVal);
+                case "-":
+                    return Number(leftVal) - Number(rightVal);
+                case "*":
+                    return Number(leftVal) * Number(rightVal);
+                case "/":
+                    return Number(rightVal) !== 0
+                        ? Number(leftVal) / Number(rightVal)
+                        : null;
+                default:
+                    throw new Error(`Unsupported operator: ${op}`);
+            }
+        }
+        if (expr.type === "FUNCTION") {
+            return this.evaluateFunction(row, headers, expr);
+        }
+        throw new Error(`Unsupported expression type: ${expr.type}`);
+    }
+    evaluateFunction(row, headers, expr) {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+        const name = expr.name.toUpperCase();
+        const args = expr.args.map((arg) => this.evaluateExpression(row, headers, arg));
+        switch (name) {
+            case "UPPER":
+                return String((_a = args[0]) !== null && _a !== void 0 ? _a : "").toUpperCase();
+            case "LOWER":
+                return String((_b = args[0]) !== null && _b !== void 0 ? _b : "").toLowerCase();
+            case "LENGTH":
+                return String((_c = args[0]) !== null && _c !== void 0 ? _c : "").length;
+            case "TRIM":
+                return String((_d = args[0]) !== null && _d !== void 0 ? _d : "").trim();
+            case "SUBSTR":
+                return String((_e = args[0]) !== null && _e !== void 0 ? _e : "").substring(Number((_f = args[1]) !== null && _f !== void 0 ? _f : 0), Number((_g = args[2]) !== null && _g !== void 0 ? _g : undefined));
+            case "ABS":
+                return Math.abs(Number((_h = args[0]) !== null && _h !== void 0 ? _h : 0));
+            case "ROUND":
+                return (Math.round(Number((_j = args[0]) !== null && _j !== void 0 ? _j : 0) * 10 ** Number((_k = args[1]) !== null && _k !== void 0 ? _k : 0)) / 10 ** Number((_l = args[1]) !== null && _l !== void 0 ? _l : 0));
+            case "COALESCE":
+                return ((_m = args.find((a) => a !== null && a !== undefined && a !== "")) !== null && _m !== void 0 ? _m : null);
+            default:
+                throw new Error(`Unsupported function: ${name}`);
+        }
+    }
+    isTruthy(value) {
+        return (value !== null
+            && value !== undefined
+            && value !== false
+            && value !== ""
+            && value !== 0);
+    }
+}
+
+
+/***/ }),
+
 /***/ "./build/executor/insert.js":
 /*!**********************************!*\
   !*** ./build/executor/insert.js ***!
@@ -297,16 +541,23 @@ class InsertExecutor {
                 const insertedRow = [];
                 if (columns) {
                     // Map specified columns to values
-                    const row = new Array(headerRow.length).fill("");
+                    const row = Array.from({ length: headerRow.length }).fill("");
                     for (let i = 0; i < columns.length; i++) {
                         const colName = columns[i];
                         const colIndex = headerRow.indexOf(colName);
                         if (colIndex === -1) {
                             throw new Error(`Column ${colName} not found in table ${table}`);
                         }
-                        // Convert null to empty string for sheets storage
-                        const val = valueRow[i];
-                        row[colIndex] = val === null || val === undefined ? "" : String(val);
+                        // Extract value from literal expressions or use raw value
+                        let val = valueRow[i];
+                        if (val !== null
+                            && typeof val === "object"
+                            && "type" in val
+                            && val.type === "LITERAL") {
+                            val = val.value;
+                        }
+                        row[colIndex]
+                            = val === null || val === undefined ? "" : String(val);
                     }
                     insertedRow.push(...row);
                 }
@@ -316,9 +567,24 @@ class InsertExecutor {
                         throw new Error(`Expected ${headerRow.length} values, got ${valueRow.length}`);
                     }
                     // Convert null values to empty strings for sheets storage
-                    insertedRow.push(...valueRow.map((v) => v === null || v === undefined ? "" : String(v)));
+                    insertedRow.push(...valueRow.map((v) => {
+                        // Extract value from literal expressions or use raw value
+                        if (v !== null
+                            && typeof v === "object"
+                            && "type" in v
+                            && v.type === "LITERAL") {
+                            v = v.value;
+                        }
+                        return v === null || v === undefined ? "" : String(v);
+                    }));
                 }
                 rowsToInsert.push(insertedRow);
+            }
+            // Save snapshot if in transaction
+            if (this.context.inTransaction && this.context.transactionSnapshot) {
+                if (!this.context.transactionSnapshot.has(table)) {
+                    this.context.transactionSnapshot.set(table, currentData);
+                }
             }
             // Append rows to sheet
             adapter.appendRowsSync(table, rowsToInsert);
@@ -364,8 +630,15 @@ class SelectExecutor {
     constructor(context) {
         this.context = context;
     }
+    /**
+     * Extract column name from potentially qualified name (e.g., "table.column" -> "column")
+     */
+    getColumnName(qualifiedName) {
+        const parts = qualifiedName.split(".");
+        return parts[parts.length - 1]; // Return last part after dot
+    }
     executeSync(stmt) {
-        const { from: tableName, where, orderBy, limit, offset } = stmt;
+        const { from: tableName, columns: selectColumns, where, groupBy, having, orderBy, limit, offset } = stmt;
         try {
             const adapter = new _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__.SheetsAdapter({
                 spreadsheet: this.context.spreadsheet,
@@ -381,13 +654,60 @@ class SelectExecutor {
             }
             const headers = allData[0];
             let rows = allData.slice(1);
-            // Apply WHERE filter
+            // Apply WHERE filter first
             if (where) {
                 rows = this.filterRows(rows, headers, where);
             }
+            // Handle GROUP BY if present
+            let selectedColumns = headers;
+            let selectedColumnIndices = [];
+            const isSelectAll = selectColumns.length === 1 && selectColumns[0].expr.type === "STAR";
+            if (groupBy && groupBy.length > 0) {
+                // Perform grouping
+                rows = this.groupRows(rows, headers, groupBy, selectColumns, having);
+                // After grouping, columns are the group keys + aggregate results
+                if (!isSelectAll) {
+                    // Specific columns selected - extract from select list with aliases
+                    selectedColumns = selectColumns.map((col) => {
+                        // Use alias if provided, otherwise use expression name
+                        if (col.alias) {
+                            return col.alias;
+                        }
+                        if (col.expr.type === "FUNCTION") {
+                            return col.expr.name.toLowerCase();
+                        }
+                        const colName = this.getColumnName(col.expr.name);
+                        return colName;
+                    });
+                }
+            }
+            else {
+                // No GROUP BY - determine which columns to select
+                if (!isSelectAll) {
+                    // Specific columns selected
+                    selectedColumns = selectColumns.map((col) => {
+                        const colName = this.getColumnName(col.expr.name);
+                        const colIndex = headers.indexOf(colName);
+                        if (colIndex === -1) {
+                            throw new Error(`Column ${col.expr.name} not found`);
+                        }
+                        selectedColumnIndices.push(colIndex);
+                        // Use alias if provided, otherwise use column name
+                        return col.alias || colName;
+                    });
+                }
+                else {
+                    // SELECT * - use all columns
+                    selectedColumnIndices = headers.map((_, i) => i);
+                }
+                // Project selected columns only
+                if (!isSelectAll) {
+                    rows = rows.map(row => selectedColumnIndices.map(idx => row[idx]));
+                }
+            }
             // Apply ORDER BY
             if (orderBy && orderBy.length > 0) {
-                rows = this.sortRows(rows, headers, orderBy);
+                rows = this.sortRows(rows, selectedColumns, orderBy);
             }
             // Apply OFFSET
             if (offset && offset > 0) {
@@ -398,9 +718,39 @@ class SelectExecutor {
                 rows = rows.slice(0, limit);
             }
             _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.info(`Selected ${rows.length} rows from ${tableName}`);
+            // Convert rows to proper types based on schema
+            const schema = this.context.schemas.get(tableName);
+            if (schema) {
+                rows = rows.map((row) => {
+                    return row.map((value, idx) => {
+                        const columnName = selectedColumns[idx];
+                        if (!columnName)
+                            return value;
+                        const colDef = schema.columns.find((c) => c.name === columnName);
+                        if (!colDef)
+                            return value;
+                        // Convert based on column type
+                        if (value === null || value === undefined || value === "") {
+                            return null;
+                        }
+                        switch (colDef.type) {
+                            case "INTEGER":
+                                const intVal = Number(value);
+                                return !isNaN(intVal) && Number.isInteger(intVal) ? intVal : value;
+                            case "REAL":
+                                const floatVal = Number(value);
+                                return !isNaN(floatVal) ? floatVal : value;
+                            case "TEXT":
+                            case "BLOB":
+                            default:
+                                return value;
+                        }
+                    });
+                });
+            }
             return {
-                columns: headers,
-                rows: rows,
+                columns: selectedColumns,
+                rows,
                 affectedRowCount: 0,
             };
         }
@@ -409,8 +759,198 @@ class SelectExecutor {
             throw err;
         }
     }
+    evaluateHaving(_selectColumns, having, originalHeaders, groupRows) {
+        // Create a special context for HAVING evaluation where aggregate functions
+        // can be recalculated if needed
+        const havingEvaluator = (expr) => {
+            if (expr.type === "LITERAL") {
+                return expr.value;
+            }
+            if (expr.type === "FUNCTION") {
+                // Aggregate function in HAVING - calculate it from groupRows
+                const funcName = expr.name.toUpperCase();
+                switch (funcName) {
+                    case "COUNT": {
+                        if (expr.args.length === 0 || expr.args[0].type === "STAR") {
+                            return groupRows.length;
+                        }
+                        else {
+                            const colName = this.getColumnName(expr.args[0].name);
+                            const colIdx = originalHeaders.indexOf(colName);
+                            return groupRows.filter(r => r[colIdx] !== null && r[colIdx] !== "").length;
+                        }
+                    }
+                    case "SUM": {
+                        const colName = this.getColumnName(expr.args[0].name);
+                        const colIdx = originalHeaders.indexOf(colName);
+                        return groupRows.reduce((sum, r) => sum + Number(r[colIdx] || 0), 0);
+                    }
+                    case "AVG": {
+                        const colName = this.getColumnName(expr.args[0].name);
+                        const colIdx = originalHeaders.indexOf(colName);
+                        const sum = groupRows.reduce((s, r) => s + Number(r[colIdx] || 0), 0);
+                        return groupRows.length > 0 ? sum / groupRows.length : null;
+                    }
+                    case "MIN": {
+                        const colName = this.getColumnName(expr.args[0].name);
+                        const colIdx = originalHeaders.indexOf(colName);
+                        const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                        return values.length > 0 ? Math.min(...values) : null;
+                    }
+                    case "MAX": {
+                        const colName = this.getColumnName(expr.args[0].name);
+                        const colIdx = originalHeaders.indexOf(colName);
+                        const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                        return values.length > 0 ? Math.max(...values) : null;
+                    }
+                    default:
+                        throw new Error(`Unsupported aggregate in HAVING: ${funcName}`);
+                }
+            }
+            if (expr.type === "BINARY_OP") {
+                const op = expr.op.toUpperCase();
+                const left = havingEvaluator(expr.left);
+                const right = havingEvaluator(expr.right);
+                switch (op) {
+                    case "=":
+                        return Number(left) === Number(right);
+                    case "!=":
+                    case "<>":
+                        return Number(left) !== Number(right);
+                    case ">":
+                        return Number(left) > Number(right);
+                    case ">=":
+                        return Number(left) >= Number(right);
+                    case "<":
+                        return Number(left) < Number(right);
+                    case "<=":
+                        return Number(left) <= Number(right);
+                    case "AND":
+                        return this.isTruthy(left) && this.isTruthy(right);
+                    case "OR":
+                        return this.isTruthy(left) || this.isTruthy(right);
+                    default:
+                        return null;
+                }
+            }
+            throw new Error(`Unsupported expression in HAVING: ${expr.type}`);
+        };
+        return this.isTruthy(havingEvaluator(having));
+    }
     filterRows(rows, headers, where) {
-        return rows.filter((row) => this.isTruthy(this.evaluateExpression(row, headers, where.expr)));
+        return rows.filter(row => this.isTruthy(this.evaluateExpression(row, headers, where.expr)));
+    }
+    groupRows(rows, headers, groupByColumns, selectColumns, having) {
+        // Map group by column names to indices
+        const groupByIndices = groupByColumns.map(colName => {
+            const colName2 = this.getColumnName(colName);
+            const idx = headers.indexOf(colName2);
+            if (idx === -1) {
+                throw new Error(`Column ${colName} not found in GROUP BY`);
+            }
+            return idx;
+        });
+        // Group rows by the GROUP BY columns
+        const groups = new Map();
+        for (const row of rows) {
+            // Create group key from GROUP BY column values
+            const groupKey = groupByIndices.map(idx => row[idx]).join("\x00");
+            if (!groups.has(groupKey)) {
+                groups.set(groupKey, []);
+            }
+            groups.get(groupKey).push(row);
+        }
+        // Build result rows with aggregates
+        const resultRows = [];
+        for (const [_, groupRows] of groups.entries()) {
+            // Create a row with group key values + aggregate calculations
+            const resultRow = [];
+            // First, add the group key columns
+            for (const idx of groupByIndices) {
+                resultRow.push(groupRows[0][idx]); // All rows in group have same values
+            }
+            // Then, calculate aggregates for non-group-by columns in SELECT
+            for (const selectCol of selectColumns) {
+                const expr = selectCol.expr;
+                if (expr.type === "FUNCTION") {
+                    // Aggregate function
+                    const funcName = expr.name.toUpperCase();
+                    let aggValue = null;
+                    switch (funcName) {
+                        case "COUNT": {
+                            if (expr.args.length === 0 || (expr.args[0].type === "STAR")) {
+                                aggValue = groupRows.length;
+                            }
+                            else {
+                                // COUNT(column) - count non-null values
+                                const colName = this.getColumnName(expr.args[0].name);
+                                const colIdx = headers.indexOf(colName);
+                                aggValue = groupRows.filter(r => r[colIdx] !== null && r[colIdx] !== "").length;
+                            }
+                            break;
+                        }
+                        case "SUM": {
+                            const colName = this.getColumnName(expr.args[0].name);
+                            const colIdx = headers.indexOf(colName);
+                            aggValue = groupRows.reduce((sum, r) => sum + Number(r[colIdx] || 0), 0);
+                            break;
+                        }
+                        case "AVG": {
+                            const colName = this.getColumnName(expr.args[0].name);
+                            const colIdx = headers.indexOf(colName);
+                            const sum = groupRows.reduce((s, r) => s + Number(r[colIdx] || 0), 0);
+                            aggValue = groupRows.length > 0 ? sum / groupRows.length : null;
+                            break;
+                        }
+                        case "MIN": {
+                            const colName = this.getColumnName(expr.args[0].name);
+                            const colIdx = headers.indexOf(colName);
+                            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                            aggValue = values.length > 0 ? Math.min(...values) : null;
+                            break;
+                        }
+                        case "MAX": {
+                            const colName = this.getColumnName(expr.args[0].name);
+                            const colIdx = headers.indexOf(colName);
+                            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                            aggValue = values.length > 0 ? Math.max(...values) : null;
+                            break;
+                        }
+                        default:
+                            throw new Error(`Unsupported aggregate function: ${funcName}`);
+                    }
+                    resultRow.push(aggValue);
+                }
+                else if (expr.type === "COLUMN") {
+                    // Group by column - should already be in resultRow
+                    const colName = this.getColumnName(expr.name);
+                    const colIdx = headers.indexOf(colName);
+                    const idx = groupByIndices.indexOf(colIdx);
+                    if (idx !== -1) {
+                        // Already added, don't add again
+                    }
+                    else {
+                        resultRow.push(groupRows[0][colIdx]);
+                    }
+                }
+                else {
+                    // Other expressions - evaluate on first row of group
+                    const val = this.evaluateExpression(groupRows[0], headers, expr);
+                    resultRow.push(val);
+                }
+            }
+            // Apply HAVING filter if present
+            if (having) {
+                // Evaluate HAVING - need special handling for aggregates in HAVING clause
+                if (this.evaluateHaving(selectColumns, having, headers, groupRows)) {
+                    resultRows.push(resultRow);
+                }
+            }
+            else {
+                resultRows.push(resultRow);
+            }
+        }
+        return resultRows;
     }
     evaluateExpression(row, headers, expr) {
         if (expr.type === "LITERAL") {
@@ -439,22 +979,45 @@ class SelectExecutor {
             const op = expr.op.toUpperCase();
             // Logical operators
             if (op === "AND") {
-                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left)) &&
-                    this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
+                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left))
+                    && this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
             }
             if (op === "OR") {
-                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left)) ||
-                    this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
+                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left))
+                    || this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
             }
             // Comparison operators
             const leftVal = this.getExpressionValue(row, headers, expr.left);
             const rightVal = this.getExpressionValue(row, headers, expr.right);
             switch (op) {
-                case "=":
-                    return leftVal === rightVal;
+                case "=": {
+                    // SQL NULL semantics: NULL = anything is always false
+                    // Check for actual null from parser (when comparing with NULL literal)
+                    if (leftVal === null || rightVal === null) {
+                        return false;
+                    }
+                    // Type-aware comparison: try numeric comparison first
+                    const leftNum = Number(leftVal);
+                    const rightNum = Number(rightVal);
+                    if (!isNaN(leftNum) && !isNaN(rightNum)) {
+                        return leftNum === rightNum;
+                    }
+                    return String(leftVal) === String(rightVal);
+                }
                 case "!=":
-                case "<>":
-                    return leftVal !== rightVal;
+                case "<>": {
+                    // SQL NULL semantics: NULL != anything is always false
+                    if (leftVal === null || rightVal === null) {
+                        return false;
+                    }
+                    // Type-aware comparison
+                    const leftNum = Number(leftVal);
+                    const rightNum = Number(rightVal);
+                    if (!isNaN(leftNum) && !isNaN(rightNum)) {
+                        return leftNum !== rightNum;
+                    }
+                    return String(leftVal) !== String(rightVal);
+                }
                 case ">":
                     return Number(leftVal) > Number(rightVal);
                 case ">=":
@@ -477,8 +1040,12 @@ class SelectExecutor {
                     return leftVal === rightVal;
                 case "IS NOT":
                     // IS NOT NULL checks for not null and not empty string
-                    const leftIsNotNull = !(leftVal === null || leftVal === undefined || leftVal === "");
-                    const rightIsNotNull = !(rightVal === null || rightVal === undefined || rightVal === "");
+                    const leftIsNotNull = !(leftVal === null
+                        || leftVal === undefined
+                        || leftVal === "");
+                    const rightIsNotNull = !(rightVal === null
+                        || rightVal === undefined
+                        || rightVal === "");
                     if (!rightIsNotNull) {
                         // Right side is NULL, return if left is NOT NULL
                         return leftIsNotNull;
@@ -503,7 +1070,8 @@ class SelectExecutor {
             return expr.value;
         }
         if (expr.type === "COLUMN") {
-            const colIndex = headers.indexOf(expr.name);
+            const colName = this.getColumnName(expr.name);
+            const colIndex = headers.indexOf(colName);
             if (colIndex === -1) {
                 throw new Error(`Column ${expr.name} not found`);
             }
@@ -537,7 +1105,9 @@ class SelectExecutor {
                 case "*":
                     return Number(leftVal) * Number(rightVal);
                 case "/":
-                    return Number(rightVal) !== 0 ? Number(leftVal) / Number(rightVal) : null;
+                    return Number(rightVal) !== 0
+                        ? Number(leftVal) / Number(rightVal)
+                        : null;
                 case "AND":
                     return this.isTruthy(leftVal) && this.isTruthy(rightVal);
                 case "OR":
@@ -581,7 +1151,8 @@ class SelectExecutor {
     sortRows(rows, headers, orderBy) {
         return rows.sort((a, b) => {
             for (const order of orderBy) {
-                const colIndex = headers.indexOf(order.column);
+                const colName = this.getColumnName(order.column);
+                const colIndex = headers.indexOf(colName);
                 if (colIndex === -1) {
                     continue;
                 }
@@ -621,6 +1192,253 @@ class SelectExecutor {
 
 /***/ }),
 
+/***/ "./build/executor/update.js":
+/*!**********************************!*\
+  !*** ./build/executor/update.js ***!
+  \**********************************/
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   UpdateExecutor: () => (/* binding */ UpdateExecutor)
+/* harmony export */ });
+/* harmony import */ var _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../adapter/sheets.js */ "./build/adapter/sheets.js");
+/* harmony import */ var _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../utils/logger.js */ "./build/utils/logger.js");
+/**
+ * UPDATE statement executor.
+ * Supports: UPDATE table SET col=value, ... WHERE condition
+ */
+
+
+class UpdateExecutor {
+    constructor(context) {
+        this.context = context;
+    }
+    /**
+     * Extract column name from potentially qualified name (e.g., "table.column" -> "column")
+     */
+    getColumnName(qualifiedName) {
+        const parts = qualifiedName.split(".");
+        return parts[parts.length - 1]; // Return last part after dot
+    }
+    executeSync(stmt) {
+        const { table, assignments, where } = stmt;
+        try {
+            const adapter = new _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__.SheetsAdapter({
+                spreadsheet: this.context.spreadsheet,
+            });
+            // Check table exists
+            if (!adapter.sheetExists(table)) {
+                throw new Error(`Table ${table} does not exist`);
+            }
+            // Read all data
+            const allData = adapter.readRangeSync(table);
+            if (allData.length === 0) {
+                throw new Error(`Table ${table} is empty`);
+            }
+            const headers = allData[0];
+            const dataRows = allData.slice(1);
+            // Find rows to update based on WHERE clause
+            const rowIndicesToUpdate = [];
+            if (where) {
+                for (let i = 0; i < dataRows.length; i++) {
+                    if (this.isTruthy(this.evaluateExpression(dataRows[i], headers, where.expr))) {
+                        rowIndicesToUpdate.push(i);
+                    }
+                }
+            }
+            else {
+                // No WHERE clause - update all rows
+                for (let i = 0; i < dataRows.length; i++) {
+                    rowIndicesToUpdate.push(i);
+                }
+            }
+            // Apply assignments to matching rows
+            let affectedCount = 0;
+            for (const rowIndex of rowIndicesToUpdate) {
+                const row = dataRows[rowIndex];
+                // Apply each assignment
+                for (const assignment of assignments) {
+                    const colName = this.getColumnName(assignment.column);
+                    const colIndex = headers.indexOf(colName);
+                    if (colIndex === -1) {
+                        throw new Error(`Column ${assignment.column} not found in table ${table}`);
+                    }
+                    // Evaluate the value expression
+                    const newValue = this.evaluateExpression(row, headers, assignment.value);
+                    row[colIndex]
+                        = newValue === null || newValue === undefined ? "" : String(newValue);
+                }
+                affectedCount++;
+            }
+            // Save snapshot if in transaction
+            if (this.context.inTransaction && this.context.transactionSnapshot) {
+                if (!this.context.transactionSnapshot.has(table)) {
+                    this.context.transactionSnapshot.set(table, allData);
+                }
+            }
+            // Write back all data (including unchanged rows) to preserve row order
+            if (affectedCount > 0) {
+                adapter.writeRangeSync(table, 2, dataRows);
+            }
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.info(`Updated ${affectedCount} rows in ${table}`);
+            return {
+                columns: [],
+                rows: [],
+                affectedRowCount: affectedCount,
+            };
+        }
+        catch (err) {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.error(`UPDATE failed for ${table}`, err);
+            throw err;
+        }
+    }
+    evaluateExpression(row, headers, expr) {
+        if (expr.type === "LITERAL") {
+            return expr.value;
+        }
+        if (expr.type === "COLUMN") {
+            const colName = this.getColumnName(expr.name);
+            const colIndex = headers.indexOf(colName);
+            if (colIndex === -1) {
+                throw new Error(`Column ${expr.name} not found`);
+            }
+            return row[colIndex];
+        }
+        if (expr.type === "PAREN") {
+            return this.evaluateExpression(row, headers, expr.expr);
+        }
+        if (expr.type === "UNARY_OP") {
+            const val = this.evaluateExpression(row, headers, expr.operand);
+            switch (expr.op.toUpperCase()) {
+                case "NOT":
+                    return !this.isTruthy(val);
+                case "-":
+                    return -Number(val);
+                case "+":
+                    return Number(val);
+                default:
+                    throw new Error(`Unsupported unary operator: ${expr.op}`);
+            }
+        }
+        if (expr.type === "BINARY_OP") {
+            const op = expr.op.toUpperCase();
+            // Logical operators
+            if (op === "AND") {
+                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left))
+                    && this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
+            }
+            if (op === "OR") {
+                return (this.isTruthy(this.evaluateExpression(row, headers, expr.left))
+                    || this.isTruthy(this.evaluateExpression(row, headers, expr.right)));
+            }
+            // Comparison operators
+            const leftVal = this.evaluateExpression(row, headers, expr.left);
+            const rightVal = this.evaluateExpression(row, headers, expr.right);
+            switch (op) {
+                case "=": {
+                    // Type-aware comparison: try numeric comparison first
+                    const leftNum = Number(leftVal);
+                    const rightNum = Number(rightVal);
+                    if (!isNaN(leftNum) && !isNaN(rightNum)) {
+                        return leftNum === rightNum;
+                    }
+                    return String(leftVal) === String(rightVal);
+                }
+                case "!=":
+                case "<>": {
+                    // Type-aware comparison
+                    const leftNum = Number(leftVal);
+                    const rightNum = Number(rightVal);
+                    if (!isNaN(leftNum) && !isNaN(rightNum)) {
+                        return leftNum !== rightNum;
+                    }
+                    return String(leftVal) !== String(rightVal);
+                }
+                case ">":
+                    return Number(leftVal) > Number(rightVal);
+                case ">=":
+                    return Number(leftVal) >= Number(rightVal);
+                case "<":
+                    return Number(leftVal) < Number(rightVal);
+                case "<=":
+                    return Number(leftVal) <= Number(rightVal);
+                case "LIKE":
+                    return String(leftVal).includes(String(rightVal).replace(/%/g, ""));
+                case "IS":
+                    const leftIsNull = leftVal === null || leftVal === undefined || leftVal === "";
+                    const rightIsNull = rightVal === null || rightVal === undefined || rightVal === "";
+                    if (rightIsNull) {
+                        return leftIsNull;
+                    }
+                    return leftVal === rightVal;
+                case "IS NOT":
+                    const leftIsNotNull = !(leftVal === null
+                        || leftVal === undefined
+                        || leftVal === "");
+                    const rightIsNotNull = !(rightVal === null
+                        || rightVal === undefined
+                        || rightVal === "");
+                    if (!rightIsNotNull) {
+                        return leftIsNotNull;
+                    }
+                    return leftVal !== rightVal;
+                case "+":
+                    return Number(leftVal) + Number(rightVal);
+                case "-":
+                    return Number(leftVal) - Number(rightVal);
+                case "*":
+                    return Number(leftVal) * Number(rightVal);
+                case "/":
+                    return Number(rightVal) !== 0
+                        ? Number(leftVal) / Number(rightVal)
+                        : null;
+                default:
+                    throw new Error(`Unsupported operator: ${op}`);
+            }
+        }
+        if (expr.type === "FUNCTION") {
+            return this.evaluateFunction(row, headers, expr);
+        }
+        throw new Error(`Unsupported expression type: ${expr.type}`);
+    }
+    evaluateFunction(row, headers, expr) {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+        const name = expr.name.toUpperCase();
+        const args = expr.args.map((arg) => this.evaluateExpression(row, headers, arg));
+        switch (name) {
+            case "UPPER":
+                return String((_a = args[0]) !== null && _a !== void 0 ? _a : "").toUpperCase();
+            case "LOWER":
+                return String((_b = args[0]) !== null && _b !== void 0 ? _b : "").toLowerCase();
+            case "LENGTH":
+                return String((_c = args[0]) !== null && _c !== void 0 ? _c : "").length;
+            case "TRIM":
+                return String((_d = args[0]) !== null && _d !== void 0 ? _d : "").trim();
+            case "SUBSTR":
+                return String((_e = args[0]) !== null && _e !== void 0 ? _e : "").substring(Number((_f = args[1]) !== null && _f !== void 0 ? _f : 0), Number((_g = args[2]) !== null && _g !== void 0 ? _g : undefined));
+            case "ABS":
+                return Math.abs(Number((_h = args[0]) !== null && _h !== void 0 ? _h : 0));
+            case "ROUND":
+                return (Math.round(Number((_j = args[0]) !== null && _j !== void 0 ? _j : 0) * 10 ** Number((_k = args[1]) !== null && _k !== void 0 ? _k : 0)) / 10 ** Number((_l = args[1]) !== null && _l !== void 0 ? _l : 0));
+            case "COALESCE":
+                return ((_m = args.find((a) => a !== null && a !== undefined && a !== "")) !== null && _m !== void 0 ? _m : null);
+            default:
+                throw new Error(`Unsupported function: ${name}`);
+        }
+    }
+    isTruthy(value) {
+        return (value !== null
+            && value !== undefined
+            && value !== false
+            && value !== ""
+            && value !== 0);
+    }
+}
+
+
+/***/ }),
+
 /***/ "./build/parser/parser.js":
 /*!********************************!*\
   !*** ./build/parser/parser.js ***!
@@ -643,6 +1461,7 @@ class Parser {
     constructor() {
         this.tokens = [];
         this.current = 0;
+        this.parameterCount = 0;
     }
     /**
      * Parse SQL string into AST.
@@ -650,6 +1469,7 @@ class Parser {
     parse(sql) {
         this.tokens = this.tokenize(sql.trim());
         this.current = 0;
+        this.parameterCount = 0;
         const statements = [];
         while (!this.isAtEnd()) {
             const stmt = this.parseStatement();
@@ -686,26 +1506,36 @@ class Parser {
             // Handle multi-char operators
             if (i + 1 < sql.length) {
                 const twoChar = sql.substring(i, i + 2);
-                if (["<=", ">=", "<>", "!=", "=="].indexOf(twoChar) !== -1) {
+                if (["<=", ">=", "<>", "!=", "=="].includes(twoChar)) {
                     tokens.push(twoChar);
                     i += 2;
                     continue;
                 }
             }
-            // Handle single-char operators
-            if (/[(),;?<>=+\-*/]/.test(char)) {
-                tokens.push(char);
-                i++;
-                continue;
-            }
-            // Handle words and identifiers
-            let j = i;
-            while (j < sql.length && /\w/.test(sql[j])) {
-                j++;
-            }
-            if (j > i) {
+            // Handle numbers (including decimals)
+            if (/\d/.test(char)) {
+                let j = i;
+                while (j < sql.length && /[\d.]/.test(sql[j])) {
+                    j++;
+                }
                 tokens.push(sql.substring(i, j));
                 i = j;
+                continue;
+            }
+            // Handle words and identifiers (including hyphens and dots for qualified names)
+            if (/[a-zA-Z_]/.test(char)) {
+                let j = i;
+                while (j < sql.length && /[a-zA-Z0-9_.-]/.test(sql[j])) {
+                    j++;
+                }
+                tokens.push(sql.substring(i, j));
+                i = j;
+                continue;
+            }
+            // Handle single-char operators
+            if (/[(),;?<>=+*/]/.test(char)) {
+                tokens.push(char);
+                i++;
                 continue;
             }
             i++;
@@ -740,6 +1570,55 @@ class Parser {
                 this.advance();
                 return null;
         }
+    }
+    /**
+     * Parse a SELECT column expression - could be column, qualified name, or function call
+     */
+    parseSelectExpression() {
+        const token = this.peek();
+        if (!token) {
+            throw new Error("Expected expression in SELECT");
+        }
+        // Check for function call (e.g., COUNT, SUM, AVG, etc.)
+        const upperToken = token.toUpperCase();
+        if (["COUNT", "SUM", "AVG", "MIN", "MAX", "UPPER", "LOWER", "LENGTH", "TRIM", "SUBSTR", "SUBSTRING", "ABS", "ROUND", "COALESCE"].includes(upperToken)) {
+            const funcName = this.advance();
+            this.consume("(", "Expected ( after function name");
+            const args = [];
+            if (this.peek() === "*") {
+                // COUNT(*) special case
+                this.advance();
+            }
+            else {
+                while (this.peek() !== ")") {
+                    const argToken = this.peek();
+                    if (!argToken) {
+                        throw new Error("Unexpected end of expression in function arguments");
+                    }
+                    // Parse argument as column reference or expression
+                    const argName = this.advance();
+                    args.push({
+                        type: "COLUMN",
+                        name: argName,
+                    });
+                    if (this.peek() === ",") {
+                        this.advance();
+                    }
+                }
+            }
+            this.consume(")", "Expected ) after function arguments");
+            return {
+                type: "FUNCTION",
+                name: funcName,
+                args,
+            };
+        }
+        // Otherwise, parse as column (could be qualified like table.column)
+        const colName = this.advance();
+        return {
+            type: "COLUMN",
+            name: colName,
+        };
     }
     parseCreateTable() {
         var _a, _b;
@@ -816,23 +1695,57 @@ class Parser {
         };
     }
     parseSelect() {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
         this.consume("SELECT", "Expected SELECT");
-        // Parse columns (simplified: only support SELECT *)
+        // Parse columns
         const columns = [];
         if (this.peek() === "*") {
             this.advance();
             columns.push({ expr: { type: "STAR" } });
         }
         else {
-            // Support SELECT col1, col2, ... in future
-            columns.push({ expr: { type: "STAR" } });
+            // Parse specific columns: col1, col2, COUNT(*), SUM(salary), COUNT(*) as count, etc.
+            while (true) {
+                const colToken = this.peek();
+                if (!colToken || colToken.toUpperCase() === "FROM") {
+                    break;
+                }
+                // Parse column expression - could be column name, qualified name, or function
+                const expr = this.parseSelectExpression();
+                let alias;
+                // Check for AS alias
+                if (((_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase()) === "AS") {
+                    this.advance();
+                    alias = this.advance();
+                }
+                else if (this.peek() && !this.peek().match(/^[,()]/)) {
+                    // Implicit alias (no AS keyword) - but only if next token isn't a comma or FROM
+                    const nextToken = (_b = this.peek()) === null || _b === void 0 ? void 0 : _b.toUpperCase();
+                    if (nextToken && nextToken !== "FROM" && nextToken !== "WHERE" && nextToken !== "GROUP" && nextToken !== "ORDER" && nextToken !== "LIMIT" && nextToken !== "OFFSET") {
+                        alias = this.advance();
+                    }
+                }
+                columns.push({
+                    expr,
+                    alias,
+                });
+                // Check for comma (multiple columns)
+                if (this.peek() === ",") {
+                    this.advance();
+                }
+                else {
+                    break;
+                }
+            }
+            if (columns.length === 0) {
+                throw new Error("Expected at least one column in SELECT");
+            }
         }
         this.consume("FROM", "Expected FROM");
         const tableName = this.advance();
         // Parse WHERE clause
         let where;
-        if (((_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase()) === "WHERE") {
+        if (((_c = this.peek()) === null || _c === void 0 ? void 0 : _c.toUpperCase()) === "WHERE") {
             this.advance();
             where = {
                 expr: this.parseLogicalOr(),
@@ -840,7 +1753,7 @@ class Parser {
         }
         // Parse GROUP BY clause
         let groupBy;
-        if (((_b = this.peek()) === null || _b === void 0 ? void 0 : _b.toUpperCase()) === "GROUP") {
+        if (((_d = this.peek()) === null || _d === void 0 ? void 0 : _d.toUpperCase()) === "GROUP") {
             this.advance();
             this.consume("BY", "Expected BY");
             groupBy = [];
@@ -853,23 +1766,23 @@ class Parser {
         }
         // Parse HAVING clause
         let having;
-        if (((_c = this.peek()) === null || _c === void 0 ? void 0 : _c.toUpperCase()) === "HAVING") {
+        if (((_e = this.peek()) === null || _e === void 0 ? void 0 : _e.toUpperCase()) === "HAVING") {
             this.advance();
             having = this.parseLogicalOr();
         }
         // Parse ORDER BY clause
         let orderBy;
-        if (((_d = this.peek()) === null || _d === void 0 ? void 0 : _d.toUpperCase()) === "ORDER") {
+        if (((_f = this.peek()) === null || _f === void 0 ? void 0 : _f.toUpperCase()) === "ORDER") {
             this.advance();
             this.consume("BY", "Expected BY");
             orderBy = [];
             while (true) {
                 const column = this.advance();
-                const desc = ((_e = this.peek()) === null || _e === void 0 ? void 0 : _e.toUpperCase()) === "DESC";
+                const desc = ((_g = this.peek()) === null || _g === void 0 ? void 0 : _g.toUpperCase()) === "DESC";
                 if (desc) {
                     this.advance();
                 }
-                else if (((_f = this.peek()) === null || _f === void 0 ? void 0 : _f.toUpperCase()) === "ASC") {
+                else if (((_h = this.peek()) === null || _h === void 0 ? void 0 : _h.toUpperCase()) === "ASC") {
                     this.advance();
                 }
                 orderBy.push({ column, desc: !!desc });
@@ -880,15 +1793,15 @@ class Parser {
         }
         // Parse LIMIT clause
         let limit;
-        if (((_g = this.peek()) === null || _g === void 0 ? void 0 : _g.toUpperCase()) === "LIMIT") {
+        if (((_j = this.peek()) === null || _j === void 0 ? void 0 : _j.toUpperCase()) === "LIMIT") {
             this.advance();
-            limit = parseInt(this.advance());
+            limit = Number.parseInt(this.advance());
         }
         // Parse OFFSET clause
         let offset;
-        if (((_h = this.peek()) === null || _h === void 0 ? void 0 : _h.toUpperCase()) === "OFFSET") {
+        if (((_k = this.peek()) === null || _k === void 0 ? void 0 : _k.toUpperCase()) === "OFFSET") {
             this.advance();
-            offset = parseInt(this.advance());
+            offset = Number.parseInt(this.advance());
         }
         return {
             type: "SELECT",
@@ -945,6 +1858,7 @@ class Parser {
         };
     }
     parseUpdate() {
+        var _a;
         this.consume("UPDATE", "Expected UPDATE");
         const tableName = this.advance();
         this.consume("SET", "Expected SET");
@@ -952,8 +1866,9 @@ class Parser {
         while (true) {
             const column = this.advance();
             this.consume("=", "Expected =");
-            const value = this.parseValue();
-            assignments.push({ column, value: { type: "LITERAL", value } });
+            // Parse assignment value as expression (supports parameters, functions, etc)
+            const value = this.parseAdditive();
+            assignments.push({ column, value });
             if (this.peek() === ",") {
                 this.advance();
             }
@@ -961,22 +1876,41 @@ class Parser {
                 break;
             }
         }
+        // Parse WHERE clause
+        let where;
+        if (((_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase()) === "WHERE") {
+            this.advance();
+            where = {
+                expr: this.parseLogicalOr(),
+            };
+        }
         return {
             type: "UPDATE",
             stmt: {
                 table: tableName,
                 assignments,
+                where,
             },
         };
     }
     parseDelete() {
+        var _a;
         this.consume("DELETE", "Expected DELETE");
         this.consume("FROM", "Expected FROM");
         const tableName = this.advance();
+        // Parse WHERE clause
+        let where;
+        if (((_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase()) === "WHERE") {
+            this.advance();
+            where = {
+                expr: this.parseLogicalOr(),
+            };
+        }
         return {
             type: "DELETE",
             stmt: {
                 table: tableName,
+                where,
             },
         };
     }
@@ -1024,34 +1958,47 @@ class Parser {
         var _a, _b;
         let expr = this.parseAdditive();
         const op = (_a = this.peek()) === null || _a === void 0 ? void 0 : _a.toUpperCase();
-        if (op === "=" ||
-            op === "!=" ||
-            op === "<>" ||
-            op === "<" ||
-            op === ">" ||
-            op === "<=" ||
-            op === ">=" ||
-            op === "LIKE" ||
-            op === "IN" ||
-            op === "IS") {
+        if (op === "="
+            || op === "!="
+            || op === "<>"
+            || op === "<"
+            || op === ">"
+            || op === "<="
+            || op === ">="
+            || op === "LIKE"
+            || op === "IN"
+            || op === "IS") {
             this.advance();
-            const right = this.parseAdditive();
-            expr = {
-                type: "BINARY_OP",
-                op,
-                left: expr,
-                right,
-            };
-            // Handle IS NULL / IS NOT NULL
-            if (op === "IS" && ((_b = this.peek()) === null || _b === void 0 ? void 0 : _b.toUpperCase()) === "NOT") {
-                this.advance(); // consume NOT
-                // Parse the next expression (usually NULL)
-                const notExpr = this.parsePrimary();
+            // Handle IS NULL / IS NOT NULL specially
+            if (op === "IS") {
+                const notToken = (_b = this.peek()) === null || _b === void 0 ? void 0 : _b.toUpperCase();
+                if (notToken === "NOT") {
+                    this.advance(); // consume NOT
+                    const right = this.parsePrimary(); // Parse NULL
+                    expr = {
+                        type: "BINARY_OP",
+                        op: "IS NOT",
+                        left: expr,
+                        right,
+                    };
+                }
+                else {
+                    const right = this.parseAdditive();
+                    expr = {
+                        type: "BINARY_OP",
+                        op,
+                        left: expr,
+                        right,
+                    };
+                }
+            }
+            else {
+                const right = this.parseAdditive();
                 expr = {
                     type: "BINARY_OP",
-                    op: "IS NOT",
+                    op,
                     left: expr,
-                    right: notExpr,
+                    right,
                 };
             }
         }
@@ -1124,6 +2071,11 @@ class Parser {
         if (!token) {
             throw new Error("Unexpected end of expression");
         }
+        // Parameter placeholder
+        if (token === "?") {
+            this.advance();
+            return { type: "PARAMETER", position: this.parameterCount++ };
+        }
         // Parenthesized expression
         if (token === "(") {
             this.advance();
@@ -1147,7 +2099,7 @@ class Parser {
             const num = this.advance();
             return {
                 type: "LITERAL",
-                value: /\./.test(num) ? parseFloat(num) : parseInt(num, 10),
+                value: /\./.test(num) ? Number.parseFloat(num) : Number.parseInt(num, 10),
             };
         }
         // Keywords as literals
@@ -1191,7 +2143,7 @@ class Parser {
         const token = this.peek();
         if (token === "?") {
             this.advance();
-            return { type: "PARAMETER", position: 0 };
+            return { type: "PARAMETER", position: this.parameterCount++ };
         }
         if ((token === null || token === void 0 ? void 0 : token.startsWith("'")) || (token === null || token === void 0 ? void 0 : token.startsWith(`"`))) {
             const str = this.advance();
@@ -1385,11 +2337,13 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   RequestHandler: () => (/* binding */ RequestHandler)
 /* harmony export */ });
 /* harmony import */ var _executor_create_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../executor/create.js */ "./build/executor/create.js");
-/* harmony import */ var _executor_insert_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../executor/insert.js */ "./build/executor/insert.js");
-/* harmony import */ var _executor_select_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../executor/select.js */ "./build/executor/select.js");
-/* harmony import */ var _parser_parser_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ../parser/parser.js */ "./build/parser/parser.js");
-/* harmony import */ var _schema_manager_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ../schema/manager.js */ "./build/schema/manager.js");
-/* harmony import */ var _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ../utils/logger.js */ "./build/utils/logger.js");
+/* harmony import */ var _executor_delete_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../executor/delete.js */ "./build/executor/delete.js");
+/* harmony import */ var _executor_insert_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../executor/insert.js */ "./build/executor/insert.js");
+/* harmony import */ var _executor_select_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ../executor/select.js */ "./build/executor/select.js");
+/* harmony import */ var _executor_update_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ../executor/update.js */ "./build/executor/update.js");
+/* harmony import */ var _parser_parser_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ../parser/parser.js */ "./build/parser/parser.js");
+/* harmony import */ var _schema_manager_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ../schema/manager.js */ "./build/schema/manager.js");
+/* harmony import */ var _utils_logger_js__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ../utils/logger.js */ "./build/utils/logger.js");
 /**
  * HTTP request handler for SQL execution.
  * Entry point for doPost() requests.
@@ -1400,28 +2354,45 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
+
+
+// Global transaction state (persists across HTTP requests)
+const transactionStates = new Map();
+// Get or create transaction state for current user
+function getTransactionState(userId) {
+    if (!transactionStates.has(userId)) {
+        transactionStates.set(userId, {
+            inTransaction: false,
+        });
+    }
+    return transactionStates.get(userId);
+}
 class RequestHandler {
     handle(body) {
         const requestId = this.generateRequestId();
-        _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.setContext({ requestId });
+        _utils_logger_js__WEBPACK_IMPORTED_MODULE_7__.logger.setContext({ requestId });
         try {
             const request = JSON.parse(body);
-            _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.debug("Parsed request", {
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_7__.logger.debug("Parsed request", {
                 statementCount: request.statements.length,
             });
             // Get execution context
             const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-            const schemaManager = new _schema_manager_js__WEBPACK_IMPORTED_MODULE_4__.SchemaManager({ spreadsheet });
+            const schemaManager = new _schema_manager_js__WEBPACK_IMPORTED_MODULE_6__.SchemaManager({ spreadsheet });
             const schemas = schemaManager.loadSchemasSync();
+            // Get user ID for transaction state (use current user or default)
+            const userId = Session.getActiveUser().getEmail();
+            const txState = getTransactionState(userId);
             const context = {
                 spreadsheet,
                 schemas,
-                inTransaction: false,
+                inTransaction: txState.inTransaction,
+                transactionSnapshot: txState.transactionSnapshot,
             };
             // Execute statements
             const results = [];
             for (const stmt of request.statements) {
-                const result = this.executeStatementSync(stmt.sql, context);
+                const result = this.executeStatementSync(stmt.sql, stmt.args || [], context);
                 results.push(result);
             }
             const response = {
@@ -1438,7 +2409,7 @@ class RequestHandler {
             return JSON.stringify(response);
         }
         catch (err) {
-            _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.error("Request handling failed", err);
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_7__.logger.error("Request handling failed", err);
             const error = err instanceof Error ? err : new Error(String(err));
             const errorResponse = {
                 success: false,
@@ -1451,49 +2422,133 @@ class RequestHandler {
             return JSON.stringify(errorResponse);
         }
     }
-    executeStatementSync(sql, context) {
-        _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.debug("Executing statement", { sql: sql.substring(0, 100) });
+    executeStatementSync(sql, args, context) {
+        var _a;
+        _utils_logger_js__WEBPACK_IMPORTED_MODULE_7__.logger.debug("Executing statement", { sql: sql.substring(0, 100) });
         try {
             // Parse
-            const statements = _parser_parser_js__WEBPACK_IMPORTED_MODULE_3__.parser.parse(sql);
+            const statements = _parser_parser_js__WEBPACK_IMPORTED_MODULE_5__.parser.parse(sql);
             if (statements.length === 0) {
                 throw new Error("No valid SQL statement found");
             }
             const stmt = statements[0];
+            // Bind parameters
+            const boundStmt = this.bindParameters(stmt, args);
             // Execute based on type
-            switch (stmt.type) {
+            switch (boundStmt.type) {
                 case "CREATE_TABLE": {
                     const createExec = new _executor_create_js__WEBPACK_IMPORTED_MODULE_0__.CreateTableExecutor(context);
-                    return createExec.executeSync(stmt.stmt);
+                    return createExec.executeSync(boundStmt.stmt);
                 }
                 case "INSERT": {
-                    const insertExec = new _executor_insert_js__WEBPACK_IMPORTED_MODULE_1__.InsertExecutor(context);
-                    return insertExec.executeSync(stmt.stmt);
+                    const insertExec = new _executor_insert_js__WEBPACK_IMPORTED_MODULE_2__.InsertExecutor(context);
+                    return insertExec.executeSync(boundStmt.stmt);
                 }
                 case "SELECT": {
-                    const selectExec = new _executor_select_js__WEBPACK_IMPORTED_MODULE_2__.SelectExecutor(context);
-                    return selectExec.executeSync(stmt.stmt);
+                    const selectExec = new _executor_select_js__WEBPACK_IMPORTED_MODULE_3__.SelectExecutor(context);
+                    return selectExec.executeSync(boundStmt.stmt);
                 }
-                case "BEGIN":
+                case "UPDATE": {
+                    const updateExec = new _executor_update_js__WEBPACK_IMPORTED_MODULE_4__.UpdateExecutor(context);
+                    return updateExec.executeSync(boundStmt.stmt);
+                }
+                case "DELETE": {
+                    const deleteExec = new _executor_delete_js__WEBPACK_IMPORTED_MODULE_1__.DeleteExecutor(context);
+                    return deleteExec.executeSync(boundStmt.stmt);
+                }
+                case "BEGIN": {
+                    const userId = Session.getActiveUser().getEmail();
+                    const txState = getTransactionState(userId);
+                    txState.inTransaction = true;
+                    txState.transactionSnapshot = new Map();
                     context.inTransaction = true;
-                    context.transactionSnapshot = new Map();
+                    context.transactionSnapshot = txState.transactionSnapshot;
                     return { columns: [], rows: [], affectedRowCount: 0 };
-                case "COMMIT":
+                }
+                case "COMMIT": {
+                    const userId = Session.getActiveUser().getEmail();
+                    const txState = getTransactionState(userId);
+                    txState.inTransaction = false;
+                    txState.transactionSnapshot = undefined;
                     context.inTransaction = false;
                     context.transactionSnapshot = undefined;
                     return { columns: [], rows: [], affectedRowCount: 0 };
-                case "ROLLBACK":
+                }
+                case "ROLLBACK": {
+                    const userId = Session.getActiveUser().getEmail();
+                    const txState = getTransactionState(userId);
+                    // Restore all snapshots
+                    if (context.transactionSnapshot
+                        && context.transactionSnapshot.size > 0) {
+                        const snapshots = Array.from(context.transactionSnapshot.entries());
+                        for (const [tableName, snapshotData] of snapshots) {
+                            // Restore by writing back the snapshot
+                            const sheet = context.spreadsheet.getSheetByName(tableName);
+                            if (sheet && snapshotData.length > 0) {
+                                try {
+                                    const range = sheet.getRange(1, 1, snapshotData.length, ((_a = snapshotData[0]) === null || _a === void 0 ? void 0 : _a.length) || 1);
+                                    range.setValues(snapshotData);
+                                    // Delete any extra rows added during transaction
+                                    const currentLastRow = sheet.getLastRow();
+                                    if (currentLastRow > snapshotData.length) {
+                                        for (let i = currentLastRow; i > snapshotData.length; i--) {
+                                            sheet.deleteRow(i);
+                                        }
+                                    }
+                                    _utils_logger_js__WEBPACK_IMPORTED_MODULE_7__.logger.info(`Restored table ${tableName} from transaction snapshot`);
+                                }
+                                catch (err) {
+                                    _utils_logger_js__WEBPACK_IMPORTED_MODULE_7__.logger.error(`Failed to restore table ${tableName}`, err);
+                                    throw err;
+                                }
+                            }
+                        }
+                    }
+                    txState.inTransaction = false;
+                    txState.transactionSnapshot = undefined;
                     context.inTransaction = false;
                     context.transactionSnapshot = undefined;
                     return { columns: [], rows: [], affectedRowCount: 0 };
+                }
                 default:
                     throw new Error(`Statement type not yet implemented: ${stmt.type}`);
             }
         }
         catch (err) {
-            _utils_logger_js__WEBPACK_IMPORTED_MODULE_5__.logger.error("Statement execution failed", err);
+            _utils_logger_js__WEBPACK_IMPORTED_MODULE_7__.logger.error("Statement execution failed", err);
             throw err;
         }
+    }
+    bindParameters(stmt, args) {
+        // Deep copy the statement to avoid mutating the original
+        const copy = JSON.parse(JSON.stringify(stmt));
+        // Walk the AST and replace parameter placeholders
+        const replacer = (obj) => {
+            if (Array.isArray(obj)) {
+                return obj.map(replacer);
+            }
+            if (obj === null || typeof obj !== "object") {
+                return obj;
+            }
+            if (obj.type === "PARAMETER") {
+                const position = obj.position;
+                if (position >= args.length) {
+                    throw new Error(`Parameter ${position} not provided (got ${args.length} args)`);
+                }
+                // Convert parameter to literal
+                return {
+                    type: "LITERAL",
+                    value: args[position],
+                };
+            }
+            // Recursively process object properties
+            const result = {};
+            for (const [key, value] of Object.entries(obj)) {
+                result[key] = replacer(value);
+            }
+            return result;
+        };
+        return replacer(copy);
     }
     generateRequestId() {
         const timestamp = Date.now().toString(36);

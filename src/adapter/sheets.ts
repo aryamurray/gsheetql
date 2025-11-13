@@ -31,6 +31,7 @@ export class SheetsAdapter {
   /**
    * Read all data from a sheet as 2D array (synchronous).
    * First row (header) is included.
+   * All values are converted to strings to match SQLite text model.
    */
   readRangeSync(tableName: string): SQLRowArray[] {
     try {
@@ -38,8 +39,18 @@ export class SheetsAdapter {
       const range = sheet.getDataRange();
       const values = range.getValues();
 
-      logger.debug(`Read ${values.length} rows from ${tableName}`);
-      return values as SQLRowArray[];
+      // Convert all values to strings (Google Sheets API returns mixed types)
+      const stringValues = values.map((row: any[]) =>
+        row.map((val) => {
+          if (val === null || val === undefined) {
+            return "";
+          }
+          return String(val);
+        }),
+      );
+
+      logger.debug(`Read ${stringValues.length} rows from ${tableName}`);
+      return stringValues as SQLRowArray[];
     } catch (err) {
       logger.error(`Failed to read from ${tableName}`, err);
       throw err;
@@ -102,6 +113,31 @@ export class SheetsAdapter {
    * Deletes in reverse order to maintain index stability.
    */
   async deleteRows(tableName: string, rowIndices: number[]): Promise<number> {
+    if (rowIndices.length === 0) {
+      return 0;
+    }
+
+    try {
+      const sheet = this.getSheet(tableName);
+      const sorted = [...rowIndices].sort((a, b) => b - a);
+
+      for (const rowIndex of sorted) {
+        sheet.deleteRow(rowIndex);
+      }
+
+      logger.debug(`Deleted ${sorted.length} rows from ${tableName}`);
+      return sorted.length;
+    } catch (err) {
+      logger.error(`Failed to delete from ${tableName}`, err);
+      throw err;
+    }
+  }
+
+  /**
+   * Delete rows by indices (1-indexed) synchronously.
+   * Deletes in reverse order to maintain index stability.
+   */
+  deleteRowsSync(tableName: string, rowIndices: number[]): number {
     if (rowIndices.length === 0) {
       return 0;
     }

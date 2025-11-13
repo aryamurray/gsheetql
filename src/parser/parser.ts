@@ -10,6 +10,7 @@ import { logger } from "../utils/logger.js";
 export class Parser {
   private tokens: string[] = [];
   private current = 0;
+  private parameterCount = 0;
 
   /**
    * Parse SQL string into AST.
@@ -17,6 +18,7 @@ export class Parser {
   parse(sql: string): SQLStatement[] {
     this.tokens = this.tokenize(sql.trim());
     this.current = 0;
+    this.parameterCount = 0;
 
     const statements: SQLStatement[] = [];
 
@@ -60,29 +62,39 @@ export class Parser {
       // Handle multi-char operators
       if (i + 1 < sql.length) {
         const twoChar = sql.substring(i, i + 2);
-        if (["<=", ">=", "<>", "!=", "=="].indexOf(twoChar) !== -1) {
+        if (["<=", ">=", "<>", "!=", "=="].includes(twoChar)) {
           tokens.push(twoChar);
           i += 2;
           continue;
         }
       }
 
-      // Handle single-char operators
-      if (/[(),;?<>=+\-*/]/.test(char)) {
-        tokens.push(char);
-        i++;
+      // Handle numbers (including decimals)
+      if (/\d/.test(char)) {
+        let j = i;
+        while (j < sql.length && /[\d.]/.test(sql[j])) {
+          j++;
+        }
+        tokens.push(sql.substring(i, j));
+        i = j;
         continue;
       }
 
-      // Handle words and identifiers
-      let j = i;
-      while (j < sql.length && /\w/.test(sql[j])) {
-        j++;
-      }
-
-      if (j > i) {
+      // Handle words and identifiers (including hyphens and dots for qualified names)
+      if (/[a-zA-Z_]/.test(char)) {
+        let j = i;
+        while (j < sql.length && /[a-zA-Z0-9_.-]/.test(sql[j])) {
+          j++;
+        }
         tokens.push(sql.substring(i, j));
         i = j;
+        continue;
+      }
+
+      // Handle single-char operators
+      if (/[(),;?<>=+*/]/.test(char)) {
+        tokens.push(char);
+        i++;
         continue;
       }
 
@@ -120,6 +132,63 @@ export class Parser {
         this.advance();
         return null;
     }
+  }
+
+  /**
+   * Parse a SELECT column expression - could be column, qualified name, or function call
+   */
+  private parseSelectExpression(): any {
+    const token = this.peek();
+
+    if (!token) {
+      throw new Error("Expected expression in SELECT");
+    }
+
+    // Check for function call (e.g., COUNT, SUM, AVG, etc.)
+    const upperToken = token.toUpperCase();
+    if (["COUNT", "SUM", "AVG", "MIN", "MAX", "UPPER", "LOWER", "LENGTH", "TRIM", "SUBSTR", "SUBSTRING", "ABS", "ROUND", "COALESCE"].includes(upperToken)) {
+      const funcName = this.advance()!;
+      this.consume("(", "Expected ( after function name");
+
+      const args = [];
+      if (this.peek() === "*") {
+        // COUNT(*) special case
+        this.advance();
+      } else {
+        while (this.peek() !== ")") {
+          const argToken = this.peek();
+          if (!argToken) {
+            throw new Error("Unexpected end of expression in function arguments");
+          }
+
+          // Parse argument as column reference or expression
+          const argName = this.advance()!;
+          args.push({
+            type: "COLUMN",
+            name: argName,
+          });
+
+          if (this.peek() === ",") {
+            this.advance();
+          }
+        }
+      }
+
+      this.consume(")", "Expected ) after function arguments");
+
+      return {
+        type: "FUNCTION",
+        name: funcName,
+        args,
+      };
+    }
+
+    // Otherwise, parse as column (could be qualified like table.column)
+    const colName = this.advance()!;
+    return {
+      type: "COLUMN",
+      name: colName,
+    };
   }
 
   private parseCreateTable(): SQLStatement {
@@ -206,14 +275,51 @@ export class Parser {
   private parseSelect(): SQLStatement {
     this.consume("SELECT", "Expected SELECT");
 
-    // Parse columns (simplified: only support SELECT *)
+    // Parse columns
     const columns: any[] = [];
     if (this.peek() === "*") {
       this.advance();
       columns.push({ expr: { type: "STAR" } as const });
     } else {
-      // Support SELECT col1, col2, ... in future
-      columns.push({ expr: { type: "STAR" } as const });
+      // Parse specific columns: col1, col2, COUNT(*), SUM(salary), COUNT(*) as count, etc.
+      while (true) {
+        const colToken = this.peek();
+        if (!colToken || colToken.toUpperCase() === "FROM") {
+          break;
+        }
+
+        // Parse column expression - could be column name, qualified name, or function
+        const expr = this.parseSelectExpression();
+        let alias: string | undefined;
+
+        // Check for AS alias
+        if (this.peek()?.toUpperCase() === "AS") {
+          this.advance();
+          alias = this.advance()!;
+        } else if (this.peek() && !this.peek()!.match(/^[,()]/)) {
+          // Implicit alias (no AS keyword) - but only if next token isn't a comma or FROM
+          const nextToken = this.peek()?.toUpperCase();
+          if (nextToken && nextToken !== "FROM" && nextToken !== "WHERE" && nextToken !== "GROUP" && nextToken !== "ORDER" && nextToken !== "LIMIT" && nextToken !== "OFFSET") {
+            alias = this.advance()!;
+          }
+        }
+
+        columns.push({
+          expr,
+          alias,
+        });
+
+        // Check for comma (multiple columns)
+        if (this.peek() === ",") {
+          this.advance();
+        } else {
+          break;
+        }
+      }
+
+      if (columns.length === 0) {
+        throw new Error("Expected at least one column in SELECT");
+      }
     }
 
     this.consume("FROM", "Expected FROM");
@@ -272,14 +378,14 @@ export class Parser {
     let limit;
     if (this.peek()?.toUpperCase() === "LIMIT") {
       this.advance();
-      limit = parseInt(this.advance()!);
+      limit = Number.parseInt(this.advance()!);
     }
 
     // Parse OFFSET clause
     let offset;
     if (this.peek()?.toUpperCase() === "OFFSET") {
       this.advance();
-      offset = parseInt(this.advance()!);
+      offset = Number.parseInt(this.advance()!);
     }
 
     return {
@@ -351,8 +457,9 @@ export class Parser {
     while (true) {
       const column = this.advance()!;
       this.consume("=", "Expected =");
-      const value = this.parseValue();
-      assignments.push({ column, value: { type: "LITERAL", value } });
+      // Parse assignment value as expression (supports parameters, functions, etc)
+      const value = this.parseAdditive();
+      assignments.push({ column, value });
 
       if (this.peek() === ",") {
         this.advance();
@@ -361,11 +468,21 @@ export class Parser {
       }
     }
 
+    // Parse WHERE clause
+    let where;
+    if (this.peek()?.toUpperCase() === "WHERE") {
+      this.advance();
+      where = {
+        expr: this.parseLogicalOr(),
+      };
+    }
+
     return {
       type: "UPDATE",
       stmt: {
         table: tableName,
         assignments,
+        where,
       },
     };
   }
@@ -375,10 +492,20 @@ export class Parser {
     this.consume("FROM", "Expected FROM");
     const tableName = this.advance()!;
 
+    // Parse WHERE clause
+    let where;
+    if (this.peek()?.toUpperCase() === "WHERE") {
+      this.advance();
+      where = {
+        expr: this.parseLogicalOr(),
+      };
+    }
+
     return {
       type: "DELETE",
       stmt: {
         table: tableName,
+        where,
       },
     };
   }
@@ -433,36 +560,47 @@ export class Parser {
 
     const op = this.peek()?.toUpperCase();
     if (
-      op === "=" ||
-      op === "!=" ||
-      op === "<>" ||
-      op === "<" ||
-      op === ">" ||
-      op === "<=" ||
-      op === ">=" ||
-      op === "LIKE" ||
-      op === "IN" ||
-      op === "IS"
+      op === "="
+      || op === "!="
+      || op === "<>"
+      || op === "<"
+      || op === ">"
+      || op === "<="
+      || op === ">="
+      || op === "LIKE"
+      || op === "IN"
+      || op === "IS"
     ) {
       this.advance();
-      const right = this.parseAdditive();
-      expr = {
-        type: "BINARY_OP",
-        op,
-        left: expr,
-        right,
-      };
 
-      // Handle IS NULL / IS NOT NULL
-      if (op === "IS" && this.peek()?.toUpperCase() === "NOT") {
-        this.advance(); // consume NOT
-        // Parse the next expression (usually NULL)
-        const notExpr = this.parsePrimary();
+      // Handle IS NULL / IS NOT NULL specially
+      if (op === "IS") {
+        const notToken = this.peek()?.toUpperCase();
+        if (notToken === "NOT") {
+          this.advance(); // consume NOT
+          const right = this.parsePrimary(); // Parse NULL
+          expr = {
+            type: "BINARY_OP",
+            op: "IS NOT",
+            left: expr,
+            right,
+          };
+        } else {
+          const right = this.parseAdditive();
+          expr = {
+            type: "BINARY_OP",
+            op,
+            left: expr,
+            right,
+          };
+        }
+      } else {
+        const right = this.parseAdditive();
         expr = {
           type: "BINARY_OP",
-          op: "IS NOT",
+          op,
           left: expr,
-          right: notExpr,
+          right,
         };
       }
     }
@@ -547,6 +685,12 @@ export class Parser {
       throw new Error("Unexpected end of expression");
     }
 
+    // Parameter placeholder
+    if (token === "?") {
+      this.advance();
+      return { type: "PARAMETER", position: this.parameterCount++ };
+    }
+
     // Parenthesized expression
     if (token === "(") {
       this.advance();
@@ -572,7 +716,7 @@ export class Parser {
       const num = this.advance()!;
       return {
         type: "LITERAL",
-        value: /\./.test(num) ? parseFloat(num) : parseInt(num, 10),
+        value: /\./.test(num) ? Number.parseFloat(num) : Number.parseInt(num, 10),
       };
     }
 
@@ -626,7 +770,7 @@ export class Parser {
 
     if (token === "?") {
       this.advance();
-      return { type: "PARAMETER", position: 0 };
+      return { type: "PARAMETER", position: this.parameterCount++ };
     }
 
     if (token?.startsWith("'") || token?.startsWith(`"`)) {

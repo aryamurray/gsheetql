@@ -49,7 +49,9 @@ describe("Special Characters and Escaping", () => {
     it("should retrieve text with quotes correctly", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE id = 2`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE id = 2`,
+      );
 
       expect(result.rows.length).toBe(1);
       expect(result.rows[0][1]).toContain('"');
@@ -133,7 +135,9 @@ describe("Special Characters and Escaping", () => {
     it("should retrieve and query unicode correctly", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE id = 8`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE id = 8`,
+      );
 
       expect(result.rows.length).toBe(1);
       expect(result.rows[0][1]).toBe("你好世界");

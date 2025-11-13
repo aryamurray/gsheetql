@@ -41,7 +41,7 @@ export class InsertExecutor {
 
         if (columns) {
           // Map specified columns to values
-          const row = new Array(headerRow.length).fill("");
+          const row = Array.from({ length: headerRow.length }).fill("");
 
           for (let i = 0; i < columns.length; i++) {
             const colName = columns[i];
@@ -51,9 +51,18 @@ export class InsertExecutor {
               throw new Error(`Column ${colName} not found in table ${table}`);
             }
 
-            // Convert null to empty string for sheets storage
-            const val = valueRow[i];
-            row[colIndex] = val === null || val === undefined ? "" : String(val);
+            // Extract value from literal expressions or use raw value
+            let val: any = valueRow[i];
+            if (
+              val !== null
+              && typeof val === "object"
+              && "type" in val
+              && (val as any).type === "LITERAL"
+            ) {
+              val = (val as any).value;
+            }
+            row[colIndex]
+              = val === null || val === undefined ? "" : String(val);
           }
 
           insertedRow.push(...row);
@@ -67,13 +76,29 @@ export class InsertExecutor {
 
           // Convert null values to empty strings for sheets storage
           insertedRow.push(
-            ...valueRow.map((v) =>
-              v === null || v === undefined ? "" : String(v),
-            ),
+            ...valueRow.map((v: any) => {
+              // Extract value from literal expressions or use raw value
+              if (
+                v !== null
+                && typeof v === "object"
+                && "type" in v
+                && v.type === "LITERAL"
+              ) {
+                v = v.value;
+              }
+              return v === null || v === undefined ? "" : String(v);
+            }),
           );
         }
 
         rowsToInsert.push(insertedRow);
+      }
+
+      // Save snapshot if in transaction
+      if (this.context.inTransaction && this.context.transactionSnapshot) {
+        if (!this.context.transactionSnapshot.has(table)) {
+          this.context.transactionSnapshot.set(table, currentData);
+        }
       }
 
       // Append rows to sheet
@@ -82,9 +107,7 @@ export class InsertExecutor {
       // Return result
       const lastInsertRowId = currentData.length + rowsToInsert.length;
 
-      logger.info(
-        `Inserted ${rowsToInsert.length} rows into ${table}`,
-      );
+      logger.info(`Inserted ${rowsToInsert.length} rows into ${table}`);
 
       return {
         columns: [],

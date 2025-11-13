@@ -78,6 +78,7 @@ npm test -- --grep "WHERE Clause"
 ### `integration/crud.test.ts`
 
 Core functionality tests:
+
 - CREATE TABLE with various column types
 - INSERT single and multiple rows
 - SELECT all rows and with WHERE clauses
@@ -93,6 +94,7 @@ Core functionality tests:
 ### `edge-cases/null-and-empty.test.ts`
 
 NULL value handling:
+
 - INSERT with NULL values
 - INSERT with missing columns
 - INSERT empty strings
@@ -106,6 +108,7 @@ NULL value handling:
 ### `edge-cases/special-characters.test.ts`
 
 Special character handling:
+
 - Quotes in values (single and double)
 - Backslashes and escaping
 - Special ASCII characters
@@ -119,6 +122,7 @@ Special character handling:
 ### `edge-cases/type-coercion.test.ts`
 
 Type conversion tests:
+
 - Numeric type coercion
 - String to number implicit conversion
 - Boolean-like values
@@ -173,7 +177,7 @@ import {
   getColumnIndex,
   extractColumn,
   assertSortedAsc,
-  assertRowCount
+  assertRowCount,
 } from "../fixtures/setup.js";
 
 // Get column index
@@ -252,6 +256,7 @@ VITEST_TEST_TIMEOUT=60000 npm test
 ### Table already exists error
 
 Tests use unique table names with timestamps. If you get this error, the previous test run didn't clean up. Either:
+
 1. Wait a moment and run tests again (unique table names use timestamps)
 2. Manually delete old test tables from your spreadsheet
 

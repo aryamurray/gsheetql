@@ -4,7 +4,12 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { initializeClient, generateTableName, getColumnIndex, extractColumn } from "../fixtures/setup.js";
+import {
+  initializeClient,
+  generateTableName,
+  getColumnIndex,
+  extractColumn,
+} from "../fixtures/setup.js";
 
 let tableName: string;
 
@@ -104,7 +109,13 @@ describe("CRUD Operations", () => {
 
       const result = await client.query(`SELECT * FROM ${tableName}`);
 
-      expect(result.columns).toEqual(["id", "name", "email", "salary", "hire_date"]);
+      expect(result.columns).toEqual([
+        "id",
+        "name",
+        "email",
+        "salary",
+        "hire_date",
+      ]);
     });
 
     it("should return correct data types", async () => {
@@ -124,8 +135,8 @@ describe("CRUD Operations", () => {
       const result = await client.query(`SELECT * FROM ${tableName}`);
       const emailIndex = getColumnIndex(result.columns, "email");
 
-      // Row 3 (Charlie) has NULL email - represented as empty string in sheets
-      expect(result.rows[2][emailIndex]).toBe("");
+      // Row 3 (Charlie) has NULL email - converted to null in JSON response
+      expect(result.rows[2][emailIndex]).toBe(null);
     });
   });
 
@@ -133,7 +144,9 @@ describe("CRUD Operations", () => {
     it("should filter with = operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE id = 1`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE id = 1`,
+      );
 
       expect(result.rows.length).toBe(1);
       expect(result.rows[0][0]).toBe(1); // id
@@ -143,16 +156,22 @@ describe("CRUD Operations", () => {
     it("should filter with > operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE salary > 70000`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE salary > 70000`,
+      );
 
       expect(result.rows.length).toBe(3); // Alice (75k), Diana (80k), Frank (72k)
-      expect(result.rows.every((row: any) => Number(row[3]) > 70000)).toBe(true);
+      expect(result.rows.every((row: any) => Number(row[3]) > 70000)).toBe(
+        true,
+      );
     });
 
     it("should filter with < operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE salary < 65000`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE salary < 65000`,
+      );
 
       expect(result.rows.length).toBe(1); // Eve (60k)
     });
@@ -160,7 +179,9 @@ describe("CRUD Operations", () => {
     it("should filter with >= operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE salary >= 75000`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE salary >= 75000`,
+      );
 
       expect(result.rows.length).toBe(2); // Alice (75k), Diana (80k)
     });
@@ -168,7 +189,9 @@ describe("CRUD Operations", () => {
     it("should filter with <= operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE salary <= 65000`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE salary <= 65000`,
+      );
 
       expect(result.rows.length).toBe(2); // Bob (65k), Eve (60k)
     });
@@ -176,7 +199,9 @@ describe("CRUD Operations", () => {
     it("should filter with != operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE id != 1`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE id != 1`,
+      );
 
       expect(result.rows.length).toBe(5);
       expect(result.rows.every((row: any) => row[0] !== 1)).toBe(true);
@@ -185,7 +210,9 @@ describe("CRUD Operations", () => {
     it("should filter with <> operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE name <> 'Alice'`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE name <> 'Alice'`,
+      );
 
       expect(result.rows.length).toBe(5);
     });
@@ -195,7 +222,9 @@ describe("CRUD Operations", () => {
     it("should filter text with = operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE name = 'Alice'`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE name = 'Alice'`,
+      );
 
       expect(result.rows.length).toBe(1);
       expect(result.rows[0][1]).toBe("Alice");
@@ -204,7 +233,9 @@ describe("CRUD Operations", () => {
     it("should filter text with != operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE name != 'Bob'`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE name != 'Bob'`,
+      );
 
       expect(result.rows.length).toBe(5);
     });
@@ -212,7 +243,9 @@ describe("CRUD Operations", () => {
     it("should filter text case-sensitively", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE name = 'alice'`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE name = 'alice'`,
+      );
 
       expect(result.rows.length).toBe(0); // Should not match 'Alice'
     });
@@ -237,7 +270,9 @@ describe("CRUD Operations", () => {
     it("should filter with OR", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE id = 1 OR id = 2`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE id = 1 OR id = 2`,
+      );
 
       expect(result.rows.length).toBe(2);
       const ids = extractColumn(result.rows, 0);
@@ -260,7 +295,9 @@ describe("CRUD Operations", () => {
     it("should order by numeric column ascending", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} ORDER BY id ASC`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} ORDER BY id ASC`,
+      );
 
       const ids = extractColumn(result.rows, 0);
       expect(ids).toEqual([1, 2, 3, 4, 5, 6]);
@@ -269,7 +306,9 @@ describe("CRUD Operations", () => {
     it("should order by numeric column descending", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} ORDER BY id DESC`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} ORDER BY id DESC`,
+      );
 
       const ids = extractColumn(result.rows, 0);
       expect(ids).toEqual([6, 5, 4, 3, 2, 1]);
@@ -278,7 +317,9 @@ describe("CRUD Operations", () => {
     it("should order by text column", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} ORDER BY name ASC`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} ORDER BY name ASC`,
+      );
 
       const names = extractColumn(result.rows, 1);
       expect(names[0]).toBe("Alice");
@@ -288,7 +329,9 @@ describe("CRUD Operations", () => {
     it("should order by REAL column", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} ORDER BY salary ASC`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} ORDER BY salary ASC`,
+      );
 
       const salaries = extractColumn(result.rows, 3);
       expect(salaries[0]).toBe(60000); // Eve
@@ -316,7 +359,9 @@ describe("CRUD Operations", () => {
     it("should combine LIMIT and OFFSET", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} LIMIT 2 OFFSET 1`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} LIMIT 2 OFFSET 1`,
+      );
 
       expect(result.rows.length).toBe(2);
     });
@@ -324,7 +369,9 @@ describe("CRUD Operations", () => {
     it("should handle OFFSET beyond row count", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} OFFSET 1000`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} OFFSET 1000`,
+      );
 
       expect(result.rows.length).toBe(0);
     });

@@ -3,7 +3,11 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { initializeClient, generateTableName, getColumnIndex } from "../fixtures/setup.js";
+import {
+  initializeClient,
+  generateTableName,
+  getColumnIndex,
+} from "../fixtures/setup.js";
 
 let tableName: string;
 
@@ -40,7 +44,9 @@ describe("NULL and Empty Value Handling", () => {
     it("should insert with missing columns (treated as NULL)", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`INSERT INTO ${tableName} (id, name) VALUES (2, 'Bob')`);
+      const result = await client.query(
+        `INSERT INTO ${tableName} (id, name) VALUES (2, 'Bob')`,
+      );
 
       expect(result.affectedRowCount).toBe(1);
     });
@@ -68,7 +74,9 @@ describe("NULL and Empty Value Handling", () => {
     it("should handle IS NULL operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE name IS NULL`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE name IS NULL`,
+      );
 
       // Should find NULL values (empty cells)
       expect(result.rows.length).toBeGreaterThanOrEqual(1);
@@ -77,7 +85,9 @@ describe("NULL and Empty Value Handling", () => {
     it("should handle IS NOT NULL operator", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE name IS NOT NULL`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE name IS NOT NULL`,
+      );
 
       // id 2 (Bob) and id 3 (with empty string name) - both are not NULL
       expect(result.rows.length).toBeGreaterThanOrEqual(1);
@@ -103,7 +113,9 @@ describe("NULL and Empty Value Handling", () => {
     it("should handle NULL in comparisons", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE amount = NULL`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE amount = NULL`,
+      );
 
       // In SQL, NULL = NULL is always false
       expect(result.rows.length).toBe(0);
@@ -112,7 +124,9 @@ describe("NULL and Empty Value Handling", () => {
     it("should handle NULL in NOT EQUAL", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE amount != 100`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE amount != 100`,
+      );
 
       // NULL != 100 is also false in SQL
       expect(result.rows.length).toBeLessThanOrEqual(3);
@@ -123,7 +137,9 @@ describe("NULL and Empty Value Handling", () => {
     it("should handle empty string queries", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} WHERE value = ''`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} WHERE value = ''`,
+      );
 
       // Should find rows where value is empty string (NULL/missing columns)
       expect(result.rows.length).toBeGreaterThanOrEqual(0);
@@ -173,7 +189,9 @@ describe("NULL and Empty Value Handling", () => {
     it("should handle NULL values in ORDER BY", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} ORDER BY name ASC`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} ORDER BY name ASC`,
+      );
 
       expect(result.rows.length).toBe(4);
       // NULL values typically sort first in ascending order
@@ -182,7 +200,9 @@ describe("NULL and Empty Value Handling", () => {
     it("should order by nullable REAL column", async () => {
       const { client } = await import("../fixtures/setup.js");
 
-      const result = await client.query(`SELECT * FROM ${tableName} ORDER BY amount DESC`);
+      const result = await client.query(
+        `SELECT * FROM ${tableName} ORDER BY amount DESC`,
+      );
 
       expect(result.rows.length).toBe(4);
     });

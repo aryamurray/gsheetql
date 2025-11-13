@@ -80,7 +80,10 @@ export class SqlClient {
         return response.json();
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        if (attempt < this.maxRetries - 1 && (error as any)?.message?.includes("429")) {
+        if (
+          attempt < this.maxRetries - 1 &&
+          (error as any)?.message?.includes("429")
+        ) {
           const delay = this.retryDelayMs * Math.pow(2, attempt);
           await this.sleep(delay);
           continue;
@@ -96,13 +99,83 @@ export class SqlClient {
    * Execute SQL and return first result (throws if error)
    */
   async query(sql: string) {
-    const response = await this.execute(sql);
+    const response = await this.executeRaw(sql);
 
     if (!response.success) {
-      throw new Error(`SQL Error: ${response.error?.message || "Unknown error"}`);
+      throw new Error(
+        `SQL Error: ${response.error?.message || "Unknown error"}`,
+      );
     }
 
     return response.result!.data.results[0];
+  }
+
+  /**
+   * Execute parameterized SQL with bound arguments
+   */
+  async executeParameterized(sql: string, args: unknown[]) {
+    const response = await this.executeRaw(sql, args);
+
+    if (!response.success) {
+      throw new Error(
+        `SQL Error: ${response.error?.message || "Unknown error"}`,
+      );
+    }
+
+    return response.result!.data.results[0];
+  }
+
+  /**
+   * Execute SQL with optional args (internal use)
+   */
+  private async executeRaw(
+    sql: string,
+    args?: unknown[],
+  ): Promise<ApiResponse> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+      try {
+        const response = await fetch(this.apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            statements: [{ sql, args }],
+          }),
+        });
+
+        // Handle rate limiting with exponential backoff
+        if (response.status === 429) {
+          const delay = this.retryDelayMs * Math.pow(2, attempt);
+          console.warn(
+            `Rate limited (429). Retrying in ${delay}ms... (attempt ${attempt + 1}/${this.maxRetries})`,
+          );
+          await this.sleep(delay);
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        return response.json();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (
+          attempt < this.maxRetries - 1 &&
+          (error as any)?.message?.includes("429")
+        ) {
+          const delay = this.retryDelayMs * Math.pow(2, attempt);
+          await this.sleep(delay);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw lastError || new Error("Max retries exceeded");
   }
 
   /**
@@ -113,7 +186,9 @@ export class SqlClient {
     for (const sql of statements) {
       const response = await this.execute(sql);
       if (!response.success) {
-        throw new Error(`SQL Error: ${response.error?.message || "Unknown error"}`);
+        throw new Error(
+          `SQL Error: ${response.error?.message || "Unknown error"}`,
+        );
       }
       results.push(response.result!.data.results[0]);
     }
