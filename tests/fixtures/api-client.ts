@@ -26,6 +26,8 @@ export interface ApiResponse {
 
 export class SqlClient {
   private apiUrl: string;
+  private maxRetries = 5;
+  private retryDelayMs = 500;
 
   constructor(apiUrl: string = process.env.VITE_API_URL || "") {
     if (!apiUrl) {
@@ -37,24 +39,57 @@ export class SqlClient {
   }
 
   /**
-   * Execute a single SQL statement
+   * Sleep for specified milliseconds
+   */
+  private async sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Execute a single SQL statement with retry logic for rate limits
    */
   async execute(sql: string): Promise<ApiResponse> {
-    const response = await fetch(this.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        statements: [{ sql }],
-      }),
-    });
+    let lastError: Error | null = null;
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+      try {
+        const response = await fetch(this.apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            statements: [{ sql }],
+          }),
+        });
+
+        // Handle rate limiting with exponential backoff
+        if (response.status === 429) {
+          const delay = this.retryDelayMs * Math.pow(2, attempt);
+          console.warn(
+            `Rate limited (429). Retrying in ${delay}ms... (attempt ${attempt + 1}/${this.maxRetries})`,
+          );
+          await this.sleep(delay);
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        return response.json();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < this.maxRetries - 1 && (error as any)?.message?.includes("429")) {
+          const delay = this.retryDelayMs * Math.pow(2, attempt);
+          await this.sleep(delay);
+          continue;
+        }
+        throw error;
+      }
     }
 
-    return response.json();
+    throw lastError || new Error("Max retries exceeded");
   }
 
   /**

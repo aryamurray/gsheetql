@@ -124,8 +124,8 @@ describe("CRUD Operations", () => {
       const result = await client.query(`SELECT * FROM ${tableName}`);
       const emailIndex = getColumnIndex(result.columns, "email");
 
-      // Row 3 (Charlie) has NULL email
-      expect(result.rows[2][emailIndex]).toBeFalsy();
+      // Row 3 (Charlie) has NULL email - represented as empty string in sheets
+      expect(result.rows[2][emailIndex]).toBe("");
     });
   });
 
@@ -145,8 +145,8 @@ describe("CRUD Operations", () => {
 
       const result = await client.query(`SELECT * FROM ${tableName} WHERE salary > 70000`);
 
-      expect(result.rows.length).toBe(4); // Alice (75k), Diana (80k), Frank (72k), and one more
-      expect(result.rows.every((row: any) => row[3] > 70000)).toBe(true);
+      expect(result.rows.length).toBe(3); // Alice (75k), Diana (80k), Frank (72k)
+      expect(result.rows.every((row: any) => Number(row[3]) > 70000)).toBe(true);
     });
 
     it("should filter with < operator", async () => {

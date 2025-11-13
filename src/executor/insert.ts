@@ -51,7 +51,9 @@ export class InsertExecutor {
               throw new Error(`Column ${colName} not found in table ${table}`);
             }
 
-            row[colIndex] = String(valueRow[i] ?? "");
+            // Convert null to empty string for sheets storage
+            const val = valueRow[i];
+            row[colIndex] = val === null || val === undefined ? "" : String(val);
           }
 
           insertedRow.push(...row);
@@ -63,7 +65,12 @@ export class InsertExecutor {
             );
           }
 
-          insertedRow.push(...valueRow.map((v) => String(v ?? "")));
+          // Convert null values to empty strings for sheets storage
+          insertedRow.push(
+            ...valueRow.map((v) =>
+              v === null || v === undefined ? "" : String(v),
+            ),
+          );
         }
 
         rowsToInsert.push(insertedRow);

@@ -274,7 +274,6 @@ class InsertExecutor {
         this.context = context;
     }
     executeSync(stmt) {
-        var _a;
         const { table, columns, values } = stmt;
         try {
             const adapter = new _adapter_sheets_js__WEBPACK_IMPORTED_MODULE_0__.SheetsAdapter({
@@ -305,7 +304,9 @@ class InsertExecutor {
                         if (colIndex === -1) {
                             throw new Error(`Column ${colName} not found in table ${table}`);
                         }
-                        row[colIndex] = String((_a = valueRow[i]) !== null && _a !== void 0 ? _a : "");
+                        // Convert null to empty string for sheets storage
+                        const val = valueRow[i];
+                        row[colIndex] = val === null || val === undefined ? "" : String(val);
                     }
                     insertedRow.push(...row);
                 }
@@ -314,7 +315,8 @@ class InsertExecutor {
                     if (valueRow.length !== headerRow.length) {
                         throw new Error(`Expected ${headerRow.length} values, got ${valueRow.length}`);
                     }
-                    insertedRow.push(...valueRow.map((v) => String(v !== null && v !== void 0 ? v : "")));
+                    // Convert null values to empty strings for sheets storage
+                    insertedRow.push(...valueRow.map((v) => v === null || v === undefined ? "" : String(v)));
                 }
                 rowsToInsert.push(insertedRow);
             }
@@ -391,8 +393,8 @@ class SelectExecutor {
             if (offset && offset > 0) {
                 rows = rows.slice(offset);
             }
-            // Apply LIMIT
-            if (limit && limit > 0) {
+            // Apply LIMIT (limit === 0 is valid and means return 0 rows)
+            if (limit !== null && limit !== undefined && limit >= 0) {
                 rows = rows.slice(0, limit);
             }
             _utils_logger_js__WEBPACK_IMPORTED_MODULE_1__.logger.info(`Selected ${rows.length} rows from ${tableName}`);
@@ -464,8 +466,23 @@ class SelectExecutor {
                 case "LIKE":
                     return String(leftVal).includes(String(rightVal).replace(/%/g, ""));
                 case "IS":
+                    // IS NULL checks for null or empty string
+                    // Normalize both values: null/undefined/empty-string all represent NULL
+                    const leftIsNull = leftVal === null || leftVal === undefined || leftVal === "";
+                    const rightIsNull = rightVal === null || rightVal === undefined || rightVal === "";
+                    if (rightIsNull) {
+                        // Right side is NULL, check if left side is also NULL
+                        return leftIsNull;
+                    }
                     return leftVal === rightVal;
                 case "IS NOT":
+                    // IS NOT NULL checks for not null and not empty string
+                    const leftIsNotNull = !(leftVal === null || leftVal === undefined || leftVal === "");
+                    const rightIsNotNull = !(rightVal === null || rightVal === undefined || rightVal === "");
+                    if (!rightIsNotNull) {
+                        // Right side is NULL, return if left is NOT NULL
+                        return leftIsNotNull;
+                    }
                     return leftVal !== rightVal;
                 case "+":
                     return Number(leftVal) + Number(rightVal);
@@ -1027,13 +1044,14 @@ class Parser {
             };
             // Handle IS NULL / IS NOT NULL
             if (op === "IS" && ((_b = this.peek()) === null || _b === void 0 ? void 0 : _b.toUpperCase()) === "NOT") {
-                this.advance();
-                const notNull = this.advance();
+                this.advance(); // consume NOT
+                // Parse the next expression (usually NULL)
+                const notExpr = this.parsePrimary();
                 expr = {
                     type: "BINARY_OP",
                     op: "IS NOT",
                     left: expr,
-                    right: { type: "LITERAL", value: notNull },
+                    right: notExpr,
                 };
             }
         }
@@ -1181,6 +1199,11 @@ class Parser {
         }
         if (/^\d+$/.test(token || "")) {
             return Number.parseInt(this.advance(), 10);
+        }
+        // Handle NULL keyword
+        if ((token === null || token === void 0 ? void 0 : token.toUpperCase()) === "NULL") {
+            this.advance();
+            return null;
         }
         return this.advance();
     }

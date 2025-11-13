@@ -455,13 +455,14 @@ export class Parser {
 
       // Handle IS NULL / IS NOT NULL
       if (op === "IS" && this.peek()?.toUpperCase() === "NOT") {
-        this.advance();
-        const notNull = this.advance();
+        this.advance(); // consume NOT
+        // Parse the next expression (usually NULL)
+        const notExpr = this.parsePrimary();
         expr = {
           type: "BINARY_OP",
           op: "IS NOT",
           left: expr,
-          right: { type: "LITERAL", value: notNull },
+          right: notExpr,
         };
       }
     }
@@ -635,6 +636,12 @@ export class Parser {
 
     if (/^\d+$/.test(token || "")) {
       return Number.parseInt(this.advance()!, 10);
+    }
+
+    // Handle NULL keyword
+    if (token?.toUpperCase() === "NULL") {
+      this.advance();
+      return null;
     }
 
     return this.advance();

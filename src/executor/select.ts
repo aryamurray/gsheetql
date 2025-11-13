@@ -49,8 +49,8 @@ export class SelectExecutor {
         rows = rows.slice(offset);
       }
 
-      // Apply LIMIT
-      if (limit && limit > 0) {
+      // Apply LIMIT (limit === 0 is valid and means return 0 rows)
+      if (limit !== null && limit !== undefined && limit >= 0) {
         rows = rows.slice(0, limit);
       }
 
@@ -143,8 +143,25 @@ export class SelectExecutor {
         case "LIKE":
           return String(leftVal).includes(String(rightVal).replace(/%/g, ""));
         case "IS":
+          // IS NULL checks for null or empty string
+          // Normalize both values: null/undefined/empty-string all represent NULL
+          const leftIsNull = leftVal === null || leftVal === undefined || leftVal === "";
+          const rightIsNull = rightVal === null || rightVal === undefined || rightVal === "";
+
+          if (rightIsNull) {
+            // Right side is NULL, check if left side is also NULL
+            return leftIsNull;
+          }
           return leftVal === rightVal;
         case "IS NOT":
+          // IS NOT NULL checks for not null and not empty string
+          const leftIsNotNull = !(leftVal === null || leftVal === undefined || leftVal === "");
+          const rightIsNotNull = !(rightVal === null || rightVal === undefined || rightVal === "");
+
+          if (!rightIsNotNull) {
+            // Right side is NULL, return if left is NOT NULL
+            return leftIsNotNull;
+          }
           return leftVal !== rightVal;
         case "+":
           return Number(leftVal) + Number(rightVal);
