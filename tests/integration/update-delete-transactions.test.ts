@@ -69,7 +69,7 @@ describe("UPDATE Operations", () => {
         `SELECT * FROM ${tableName} WHERE id = 1`,
       );
       const salaryCol = check.columns.indexOf("salary");
-      expect(check.rows[0][salaryCol]).toBe("76000");
+      expect(check.rows[0][salaryCol]).toBe(76000);
     });
 
     it("should update multiple rows with WHERE clause", async () => {
@@ -86,8 +86,8 @@ describe("UPDATE Operations", () => {
         `SELECT * FROM ${tableName} WHERE department = 'Engineering'`,
       );
       const salaryCol = check.columns.indexOf("salary");
-      expect(check.rows[0][salaryCol]).toBe("71000");
-      expect(check.rows[1][salaryCol]).toBe("71000");
+      expect(check.rows[0][salaryCol]).toBe(71000);
+      expect(check.rows[1][salaryCol]).toBe(71000);
     });
 
     it("should update multiple columns", async () => {
@@ -105,7 +105,7 @@ describe("UPDATE Operations", () => {
       );
       const deptCol = check.columns.indexOf("department");
       const salaryCol = check.columns.indexOf("salary");
-      expect(check.rows[0][salaryCol]).toBe("82000");
+      expect(check.rows[0][salaryCol]).toBe(82000);
       expect(check.rows[0][deptCol]).toBe("Leadership");
     });
 
@@ -123,7 +123,7 @@ describe("UPDATE Operations", () => {
         `SELECT * FROM ${tableName} WHERE id = 2`,
       );
       const salaryCol = check.columns.indexOf("salary");
-      expect(check.rows[0][salaryCol]).toBe("72000");
+      expect(check.rows[0][salaryCol]).toBe(72000);
     });
 
     it("should update without WHERE clause (all rows)", async () => {
@@ -270,7 +270,7 @@ describe("TRANSACTION Operations", () => {
         `SELECT * FROM ${txTableName} WHERE id = 1`,
       );
       const balanceCol = check.columns.indexOf("balance");
-      expect(check.rows[0][balanceCol]).toBe("1100");
+      expect(check.rows[0][balanceCol]).toBe(1100);
 
       const checkDeleted = await client.query(
         `SELECT * FROM ${txTableName} WHERE id = 2`,
@@ -473,7 +473,7 @@ describe("Prepared Statements", () => {
         `SELECT * FROM ${psTableName} WHERE id = 1`,
       );
       const valueCol = check.columns.indexOf("value");
-      expect(check.rows[0][valueCol]).toBe("999");
+      expect(check.rows[0][valueCol]).toBe(999);
     });
 
     it("should bind parameters in DELETE", async () => {

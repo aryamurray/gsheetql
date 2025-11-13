@@ -22,9 +22,9 @@ Track implementation progress of SQLite features. Update this file as features a
 - [ ] WHERE with IN operator
 - [ ] WHERE with BETWEEN operator
 - [ ] WHERE with subqueries
-- [ ] GROUP BY clause
-- [ ] HAVING clause
-- [ ] Aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+- [x] GROUP BY clause
+- [x] HAVING clause
+- [x] Aggregate functions (COUNT, SUM, AVG, MIN, MAX)
 
 ### Ordering & Pagination
 - [x] ORDER BY (single column)

@@ -19,6 +19,16 @@ export class SelectExecutor {
     return parts[parts.length - 1]; // Return last part after dot
   }
 
+  /**
+   * Check if any of the selected columns are aggregate functions
+   */
+  private hasAggregateFunction(selectColumns: any[]): boolean {
+    return selectColumns.some(col =>
+      col.expr.type === "FUNCTION" &&
+      ["COUNT", "SUM", "AVG", "MIN", "MAX"].includes(col.expr.name.toUpperCase())
+    );
+  }
+
   executeSync(stmt: SelectStatement): QueryResult {
     const { from: tableName, columns: selectColumns, where, groupBy, having, orderBy, limit, offset } = stmt;
 
@@ -47,10 +57,11 @@ export class SelectExecutor {
         rows = this.filterRows(rows, headers, where);
       }
 
-      // Handle GROUP BY if present
+      // Handle GROUP BY if present, or aggregates without GROUP BY
       let selectedColumns = headers;
       let selectedColumnIndices: number[] = [];
       const isSelectAll = selectColumns.length === 1 && selectColumns[0].expr.type === "STAR";
+      const hasAggregates = this.hasAggregateFunction(selectColumns);
 
       if (groupBy && groupBy.length > 0) {
         // Perform grouping
@@ -71,8 +82,80 @@ export class SelectExecutor {
             return colName;
           });
         }
+      } else if (hasAggregates) {
+        // Aggregate functions without GROUP BY - treat entire result set as one group
+        const aggregateRow: any[] = [];
+
+        for (const selectCol of selectColumns) {
+          const expr = selectCol.expr;
+
+          if (expr.type === "FUNCTION") {
+            const funcName = expr.name.toUpperCase();
+            let aggValue: any = null;
+
+            switch (funcName) {
+              case "COUNT": {
+                if (expr.args.length === 0) {
+                  // COUNT(*) - count all rows
+                  aggValue = rows.length;
+                } else {
+                  // COUNT(column) - count non-null values
+                  const arg = expr.args[0] as any;
+                  const colName = this.getColumnName(arg.name);
+                  const colIdx = headers.indexOf(colName);
+                  aggValue = rows.filter(r => r[colIdx] !== null && r[colIdx] !== "").length;
+                }
+                break;
+              }
+              case "SUM": {
+                const arg = expr.args[0] as any;
+                const colName = this.getColumnName(arg.name);
+                const colIdx = headers.indexOf(colName);
+                aggValue = rows.reduce((sum, r) => sum + Number(r[colIdx] || 0), 0);
+                break;
+              }
+              case "AVG": {
+                const arg = expr.args[0] as any;
+                const colName = this.getColumnName(arg.name);
+                const colIdx = headers.indexOf(colName);
+                const sum = rows.reduce((s, r) => s + Number(r[colIdx] || 0), 0);
+                aggValue = rows.length > 0 ? sum / rows.length : null;
+                break;
+              }
+              case "MIN": {
+                const arg = expr.args[0] as any;
+                const colName = this.getColumnName(arg.name);
+                const colIdx = headers.indexOf(colName);
+                const values = rows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                aggValue = values.length > 0 ? Math.min(...values) : null;
+                break;
+              }
+              case "MAX": {
+                const arg = expr.args[0] as any;
+                const colName = this.getColumnName(arg.name);
+                const colIdx = headers.indexOf(colName);
+                const values = rows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                aggValue = values.length > 0 ? Math.max(...values) : null;
+                break;
+              }
+            }
+
+            aggregateRow.push(aggValue);
+          }
+        }
+
+        rows = [aggregateRow];
+        selectedColumns = selectColumns.map((col: any) => {
+          if (col.alias) {
+            return col.alias;
+          }
+          if (col.expr.type === "FUNCTION") {
+            return col.expr.name.toLowerCase();
+          }
+          return col.expr.name;
+        });
       } else {
-        // No GROUP BY - determine which columns to select
+        // No GROUP BY and no aggregates - determine which columns to select
         if (!isSelectAll) {
           // Specific columns selected
           selectedColumns = selectColumns.map((col: any) => {

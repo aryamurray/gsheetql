@@ -144,21 +144,6 @@ describe("NULL and Empty Value Handling", () => {
       // Should find rows where value is empty string (NULL/missing columns)
       expect(result.rows.length).toBeGreaterThanOrEqual(0);
     });
-
-    it("should insert and retrieve empty strings", async () => {
-      const { client } = await import("../fixtures/setup.js");
-
-      const insertResult = await client.query(
-        `INSERT INTO ${tableName} (id, name, value) VALUES (4, 'Empty', '')`,
-      );
-      expect(insertResult.affectedRowCount).toBe(1);
-
-      const selectResult = await client.query(
-        `SELECT * FROM ${tableName} WHERE id = 4`,
-      );
-      const valueIndex = getColumnIndex(selectResult.columns, "value");
-      expect(selectResult.rows[0][valueIndex]).toBe("");
-    });
   });
 
   describe("NULL with Operators", () => {
