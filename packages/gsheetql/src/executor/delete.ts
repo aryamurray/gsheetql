@@ -1,14 +1,14 @@
 /**
- * UPDATE statement executor.
- * Supports: UPDATE table SET col=value, ... WHERE condition
+ * DELETE statement executor.
+ * Supports: DELETE FROM table WHERE condition
  */
 
 import { SheetsAdapter } from "../adapter/sheets.js";
-import type { UpdateStatement } from "../types/ast.js";
+import type { DeleteStatement } from "../types/ast.js";
 import type { ExecutionContext, QueryResult } from "../types/execution.js";
 import { logger } from "../utils/logger.js";
 
-export class UpdateExecutor {
+export class DeleteExecutor {
   constructor(private context: ExecutionContext) {}
 
   /**
@@ -19,8 +19,8 @@ export class UpdateExecutor {
     return parts[parts.length - 1]; // Return last part after dot
   }
 
-  executeSync(stmt: UpdateStatement): QueryResult {
-    const { table, assignments, where } = stmt;
+  executeSync(stmt: DeleteStatement): QueryResult {
+    const { table, where } = stmt;
 
     try {
       const adapter = new SheetsAdapter({
@@ -42,8 +42,8 @@ export class UpdateExecutor {
       const headers = allData[0] as string[];
       const dataRows = allData.slice(1);
 
-      // Find rows to update based on WHERE clause
-      const rowIndicesToUpdate: number[] = [];
+      // Find rows to delete based on WHERE clause
+      const rowIndices: number[] = [];
       if (where) {
         for (let i = 0; i < dataRows.length; i++) {
           if (
@@ -51,42 +51,14 @@ export class UpdateExecutor {
               this.evaluateExpression(dataRows[i], headers, where.expr),
             )
           ) {
-            rowIndicesToUpdate.push(i);
+            rowIndices.push(i + 2); // +1 for header, +1 for 1-based indexing
           }
         }
       } else {
-        // No WHERE clause - update all rows
+        // No WHERE clause - delete all rows
         for (let i = 0; i < dataRows.length; i++) {
-          rowIndicesToUpdate.push(i);
+          rowIndices.push(i + 2);
         }
-      }
-
-      // Apply assignments to matching rows
-      let affectedCount = 0;
-      for (const rowIndex of rowIndicesToUpdate) {
-        const row = dataRows[rowIndex];
-
-        // Apply each assignment
-        for (const assignment of assignments) {
-          const colName = this.getColumnName(assignment.column);
-          const colIndex = headers.indexOf(colName);
-          if (colIndex === -1) {
-            throw new Error(
-              `Column ${assignment.column} not found in table ${table}`,
-            );
-          }
-
-          // Evaluate the value expression
-          const newValue = this.evaluateExpression(
-            row,
-            headers,
-            assignment.value,
-          );
-          row[colIndex]
-            = newValue === null || newValue === undefined ? "" : String(newValue);
-        }
-
-        affectedCount++;
       }
 
       // Save snapshot if in transaction
@@ -96,20 +68,18 @@ export class UpdateExecutor {
         }
       }
 
-      // Write back all data (including unchanged rows) to preserve row order
-      if (affectedCount > 0) {
-        adapter.writeRangeSync(table, 2, dataRows);
-      }
+      // Delete rows
+      const deletedCount = adapter.deleteRowsSync(table, rowIndices);
 
-      logger.info(`Updated ${affectedCount} rows in ${table}`);
+      logger.info(`Deleted ${deletedCount} rows from ${table}`);
 
       return {
         columns: [],
         rows: [],
-        affectedRowCount: affectedCount,
+        affectedRowCount: deletedCount,
       };
     } catch (err) {
-      logger.error(`UPDATE failed for ${table}`, err);
+      logger.error(`DELETE failed for ${table}`, err);
       throw err;
     }
   }
@@ -173,7 +143,7 @@ export class UpdateExecutor {
           // Type-aware comparison: try numeric comparison first
           const leftNum = Number(leftVal);
           const rightNum = Number(rightVal);
-          if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          if (!Number.isNaN(leftNum) && !Number.isNaN(rightNum)) {
             return leftNum === rightNum;
           }
           return String(leftVal) === String(rightVal);
@@ -183,7 +153,7 @@ export class UpdateExecutor {
           // Type-aware comparison
           const leftNum = Number(leftVal);
           const rightNum = Number(rightVal);
-          if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          if (!Number.isNaN(leftNum) && !Number.isNaN(rightNum)) {
             return leftNum !== rightNum;
           }
           return String(leftVal) !== String(rightVal);

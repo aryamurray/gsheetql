@@ -24,8 +24,8 @@ export class SelectExecutor {
    */
   private hasAggregateFunction(selectColumns: any[]): boolean {
     return selectColumns.some(col =>
-      col.expr.type === "FUNCTION" &&
-      ["COUNT", "SUM", "AVG", "MIN", "MAX"].includes(col.expr.name.toUpperCase())
+      col.expr.type === "FUNCTION"
+      && ["COUNT", "SUM", "AVG", "MIN", "MAX"].includes(col.expr.name.toUpperCase()),
     );
   }
 
@@ -126,7 +126,7 @@ export class SelectExecutor {
                 const arg = expr.args[0] as any;
                 const colName = this.getColumnName(arg.name);
                 const colIdx = headers.indexOf(colName);
-                const values = rows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                const values = rows.map(r => Number(r[colIdx])).filter(v => !Number.isNaN(v));
                 aggValue = values.length > 0 ? Math.min(...values) : null;
                 break;
               }
@@ -134,7 +134,7 @@ export class SelectExecutor {
                 const arg = expr.args[0] as any;
                 const colName = this.getColumnName(arg.name);
                 const colIdx = headers.indexOf(colName);
-                const values = rows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                const values = rows.map(r => Number(r[colIdx])).filter(v => !Number.isNaN(v));
                 aggValue = values.length > 0 ? Math.max(...values) : null;
                 break;
               }
@@ -204,12 +204,14 @@ export class SelectExecutor {
         rows = rows.map((row: any[]) => {
           return row.map((value, idx) => {
             const columnName = selectedColumns[idx];
-            if (!columnName) return value;
+            if (!columnName)
+              return value;
 
             const colDef = schema.columns.find(
-              (c) => c.name === columnName
+              c => c.name === columnName,
             );
-            if (!colDef) return value;
+            if (!colDef)
+              return value;
 
             // Convert based on column type
             if (value === null || value === undefined || value === "") {
@@ -219,10 +221,10 @@ export class SelectExecutor {
             switch (colDef.type) {
               case "INTEGER":
                 const intVal = Number(value);
-                return !isNaN(intVal) && Number.isInteger(intVal) ? intVal : value;
+                return !Number.isNaN(intVal) && Number.isInteger(intVal) ? intVal : value;
               case "REAL":
                 const floatVal = Number(value);
-                return !isNaN(floatVal) ? floatVal : value;
+                return !Number.isNaN(floatVal) ? floatVal : value;
               case "TEXT":
               case "BLOB":
               default:
@@ -283,13 +285,13 @@ export class SelectExecutor {
           case "MIN": {
             const colName = this.getColumnName(expr.args[0].name);
             const colIdx = originalHeaders.indexOf(colName);
-            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !Number.isNaN(v));
             return values.length > 0 ? Math.min(...values) : null;
           }
           case "MAX": {
             const colName = this.getColumnName(expr.args[0].name);
             const colIdx = originalHeaders.indexOf(colName);
-            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !Number.isNaN(v));
             return values.length > 0 ? Math.max(...values) : null;
           }
           default:
@@ -417,14 +419,14 @@ export class SelectExecutor {
             case "MIN": {
               const colName = this.getColumnName(expr.args[0].name);
               const colIdx = headers.indexOf(colName);
-              const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+              const values = groupRows.map(r => Number(r[colIdx])).filter(v => !Number.isNaN(v));
               aggValue = values.length > 0 ? Math.min(...values) : null;
               break;
             }
             case "MAX": {
               const colName = this.getColumnName(expr.args[0].name);
               const colIdx = headers.indexOf(colName);
-              const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+              const values = groupRows.map(r => Number(r[colIdx])).filter(v => !Number.isNaN(v));
               aggValue = values.length > 0 ? Math.max(...values) : null;
               break;
             }
@@ -523,7 +525,7 @@ export class SelectExecutor {
           // Type-aware comparison: try numeric comparison first
           const leftNum = Number(leftVal);
           const rightNum = Number(rightVal);
-          if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          if (!Number.isNaN(leftNum) && !Number.isNaN(rightNum)) {
             return leftNum === rightNum;
           }
           return String(leftVal) === String(rightVal);
@@ -537,7 +539,7 @@ export class SelectExecutor {
           // Type-aware comparison
           const leftNum = Number(leftVal);
           const rightNum = Number(rightVal);
-          if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          if (!Number.isNaN(leftNum) && !Number.isNaN(rightNum)) {
             return leftNum !== rightNum;
           }
           return String(leftVal) !== String(rightVal);
@@ -717,7 +719,7 @@ export class SelectExecutor {
         const bNum = Number(bVal);
 
         let cmp = 0;
-        if (!isNaN(aNum) && !isNaN(bNum)) {
+        if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
           cmp = aNum - bNum;
         } else {
           cmp = String(aVal).localeCompare(String(bVal));

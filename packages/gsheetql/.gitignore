@@ -1,10 +1,5 @@
-# dependencies
+# dependencies (bun install)
 node_modules
-.pnp
-.pnp.js
-
-# turbo
-.turbo
 
 # output
 out
@@ -18,7 +13,7 @@ coverage
 
 # logs
 logs
-*.log
+_.log
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # dotenv environment variable files
@@ -27,22 +22,22 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.test.local
 .env.production.local
 .env.local
+.clasp.json
 
 # caches
 .eslintcache
 .cache
 *.tsbuildinfo
 
-# IDE
+# IntelliJ based IDEs
 .idea
-.vscode
-*.swp
-*.swo
-*~
 
-# OS
+# Finder (MacOS) folder config
 .DS_Store
-Thumbs.db
 
-# LLM
+
+#LLM
+
 Claude.md
+Code.js
+

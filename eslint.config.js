@@ -14,19 +14,19 @@ export default antfu(
   },
   {
     rules: {
-      // --- stylistic rules downgraded to warnings ---
-      "brace-style": ["warn", "1tbs", { allowSingleLine: true }],
-      "arrow-parens": ["warn", "as-needed"],
+      // --- stylistic rules ---
+      "style/brace-style": "off",
+      "style/arrow-parens": "off",
       "antfu/if-newline": "warn",
 
-      // --- existing functional rules ---
+      // --- functional rules ---
       "ts/no-redeclare": "off",
       "node/file-extension-in-import": ["error", "always"],
       "ts/consistent-type-definitions": ["error", "type"],
-      "no-console": ["warn"],
+      "no-console": ["warn", { allow: ["warn", "error"] }],
       "antfu/no-top-level-await": ["off"],
       "node/prefer-global/process": ["off"],
-      "node/no-process-env": ["error"],
+      "node/no-process-env": "off",
       "perfectionist/sort-imports": [
         "error",
         {
