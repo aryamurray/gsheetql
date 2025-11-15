@@ -1,14 +1,15 @@
-import type { MigrationConfig } from 'drizzle-orm/migrator';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
-import { sql } from 'drizzle-orm/sql';
-import type { GSheetQLDatabase } from './driver.js';
+import type { MigrationConfig } from "drizzle-orm/migrator";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { sql } from "drizzle-orm/sql";
+
+import type { GSheetQLDatabase } from "./driver.js";
 
 export async function migrate<TSchema extends Record<string, unknown>>(
   db: GSheetQLDatabase<TSchema>,
   config: MigrationConfig,
 ) {
   const migrations = readMigrationFiles(config);
-  const migrationsTable = config.migrationsTable ?? '__drizzle_migrations';
+  const migrationsTable = config.migrationsTable ?? "__drizzle_migrations";
 
   const migrationTableCreate = sql`
     CREATE TABLE IF NOT EXISTS ${sql.identifier(migrationsTable)} (

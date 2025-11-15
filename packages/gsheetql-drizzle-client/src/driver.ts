@@ -1,4 +1,5 @@
 import { entityKind } from "drizzle-orm";
+import type { BatchItem, BatchResponse } from "drizzle-orm/batch";
 import { DefaultLogger } from "drizzle-orm/logger";
 import {
   createTableRelationsHelpers,
@@ -9,7 +10,6 @@ import {
 import { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core/dialect";
 import type { DrizzleConfig } from "drizzle-orm/utils";
-import type { BatchItem, BatchResponse } from "drizzle-orm/batch";
 
 import { GSheetQLSession } from "./session.js";
 
@@ -29,7 +29,7 @@ export class GSheetQLDatabase<TSchema extends Record<string, unknown> = Record<s
   /**
    * Execute multiple queries in a batch
    */
-  async batch<U extends BatchItem<'sqlite'>, T extends Readonly<[U, ...U[]]>>(
+  async batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(
     batch: T,
   ): Promise<BatchResponse<T>> {
     return this.session.batch(batch) as Promise<BatchResponse<T>>;
@@ -46,8 +46,7 @@ function construct<TSchema extends Record<string, unknown> = Record<string, neve
   let logger;
   if (config.logger === true) {
     logger = new DefaultLogger();
-  }
- else if (config.logger !== false) {
+  } else if (config.logger !== false) {
     logger = config.logger;
   }
 
@@ -69,7 +68,7 @@ function construct<TSchema extends Record<string, unknown> = Record<string, neve
   (<any> db).$client = gsConfig;
   (<any> db).$cache = config.cache;
   if ((<any> db).$cache) {
-    (<any> db).$cache['invalidate'] = config.cache?.onMutate;
+    (<any> db).$cache.invalidate = config.cache?.onMutate;
   }
 
   return db as any;
@@ -90,12 +89,15 @@ export function drizzle<
   return construct(gsConfig, drizzleConfig) as any;
 }
 
-export namespace drizzle {
-  export function mock<TSchema extends Record<string, unknown> = Record<string, never>>(
+export const drizzleMock = {
+  mock<TSchema extends Record<string, unknown> = Record<string, never>>(
     config?: DrizzleConfig<TSchema>,
   ): GSheetQLDatabase<TSchema> & {
     $client: "$client is not available on drizzle.mock()";
   } {
     return construct({} as any, config) as any;
-  }
-}
+  },
+};
+
+// Attach mock to drizzle function for backwards compatibility
+Object.assign(drizzle, { mock: drizzleMock.mock });

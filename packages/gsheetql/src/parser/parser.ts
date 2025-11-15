@@ -17,12 +17,13 @@ export class Parser {
    * Handles double quotes ("table"), backticks (`table`), and square brackets ([table])
    */
   private stripQuotes(identifier: string): string {
-    if (!identifier) return identifier;
+    if (!identifier)
+      return identifier;
 
     // Remove surrounding quotes (", `, or [])
-    if ((identifier.startsWith('"') && identifier.endsWith('"')) ||
-        (identifier.startsWith('`') && identifier.endsWith('`')) ||
-        (identifier.startsWith('[') && identifier.endsWith(']'))) {
+    if ((identifier.startsWith("\"") && identifier.endsWith("\""))
+      || (identifier.startsWith("`") && identifier.endsWith("`"))
+      || (identifier.startsWith("[") && identifier.endsWith("]"))) {
       return identifier.slice(1, -1);
     }
 
@@ -172,7 +173,8 @@ export class Parser {
       if (this.peek() === "*") {
         // COUNT(*) special case
         this.advance();
-      } else {
+      }
+      else {
         while (this.peek() !== ")") {
           const argToken = this.peek();
           if (!argToken) {
@@ -246,17 +248,21 @@ export class Parser {
             this.advance();
             nullable = false;
           }
-        } else if (constraint === "PRIMARY") {
+        }
+        else if (constraint === "PRIMARY") {
           this.advance();
           this.consume("KEY", "Expected KEY");
           primaryKey = true;
-        } else if (constraint === "UNIQUE") {
+        }
+        else if (constraint === "UNIQUE") {
           this.advance();
           unique = true;
-        } else if (constraint === "DEFAULT") {
+        }
+        else if (constraint === "DEFAULT") {
           this.advance();
           defaultValue = this.parseValue();
-        } else {
+        }
+        else {
           break;
         }
       }
@@ -298,7 +304,8 @@ export class Parser {
     if (this.peek() === "*") {
       this.advance();
       columns.push({ expr: { type: "STAR" } as const });
-    } else {
+    }
+    else {
       // Parse specific columns: col1, col2, COUNT(*), SUM(salary), COUNT(*) as count, etc.
       while (true) {
         const colToken = this.peek();
@@ -314,7 +321,8 @@ export class Parser {
         if (this.peek()?.toUpperCase() === "AS") {
           this.advance();
           alias = this.advance()!;
-        } else if (this.peek() && !this.peek()!.match(/^[,()]/)) {
+        }
+        else if (this.peek() && !this.peek()!.match(/^[,()]/)) {
           // Implicit alias (no AS keyword) - but only if next token isn't a comma or FROM
           const nextToken = this.peek()?.toUpperCase();
           if (nextToken && nextToken !== "FROM" && nextToken !== "WHERE" && nextToken !== "GROUP" && nextToken !== "ORDER" && nextToken !== "LIMIT" && nextToken !== "OFFSET") {
@@ -330,7 +338,8 @@ export class Parser {
         // Check for comma (multiple columns)
         if (this.peek() === ",") {
           this.advance();
-        } else {
+        }
+        else {
           break;
         }
       }
@@ -384,7 +393,8 @@ export class Parser {
         const desc = this.peek()?.toUpperCase() === "DESC";
         if (desc) {
           this.advance();
-        } else if (this.peek()?.toUpperCase() === "ASC") {
+        }
+        else if (this.peek()?.toUpperCase() === "ASC") {
           this.advance();
         }
         orderBy.push({ column, desc: !!desc });
@@ -485,7 +495,8 @@ export class Parser {
 
       if (this.peek() === ",") {
         this.advance();
-      } else {
+      }
+      else {
         break;
       }
     }
@@ -607,7 +618,8 @@ export class Parser {
             left: expr,
             right,
           };
-        } else {
+        }
+        else {
           const right = this.parseAdditive();
           expr = {
             type: "BINARY_OP",
@@ -616,7 +628,8 @@ export class Parser {
             right,
           };
         }
-      } else {
+      }
+      else {
         const right = this.parseAdditive();
         expr = {
           type: "BINARY_OP",
@@ -644,7 +657,8 @@ export class Parser {
           left: expr,
           right,
         };
-      } else {
+      }
+      else {
         break;
       }
     }
@@ -666,7 +680,8 @@ export class Parser {
           left: expr,
           right,
         };
-      } else {
+      }
+      else {
         break;
       }
     }

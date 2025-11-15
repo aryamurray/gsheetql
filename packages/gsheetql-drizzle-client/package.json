@@ -8,16 +8,12 @@
     "type-check": "tsc --noEmit",
     "test": "vitest",
     "test:watch": "vitest --watch",
-    "test:ui": "vitest --ui"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "test:ui": "vitest --ui",
+    "lint": "eslint src --ext .ts",
+    "lint:critical": "eslint src --quiet --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "dotenv": "^17.2.3",
-    "drizzle-orm": "^0.44.7",
-    "eslint": "^9.39.1",
-    "vitest": "^4.0.9"
+    "drizzle-orm": "^0.44.7"
   }
 }

@@ -1,7 +1,11 @@
 import { entityKind } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import { type Cache, NoopCache } from "drizzle-orm/cache/core";
+import type { WithCacheConfig } from "drizzle-orm/cache/core/types";
 import type { Logger } from "drizzle-orm/logger";
 import { NoopLogger } from "drizzle-orm/logger";
 import type { RelationalSchemaConfig, TablesRelationalConfig } from "drizzle-orm/relations";
+import type { PreparedQuery } from "drizzle-orm/session";
 import { fillPlaceholders, type Query, sql } from "drizzle-orm/sql";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import type { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core/dialect";
@@ -13,11 +17,7 @@ import {
   SQLiteSession,
   type SQLiteTransactionConfig,
 } from "drizzle-orm/sqlite-core/session";
-import { type Cache, NoopCache } from "drizzle-orm/cache/core";
-import type { WithCacheConfig } from "drizzle-orm/cache/core/types";
 import { mapResultRow } from "drizzle-orm/utils";
-import type { BatchItem } from "drizzle-orm/batch";
-import type { PreparedQuery } from "drizzle-orm/session";
 
 import type { GSheetQLConfig } from "./driver.js";
 import { GSheetQLHttpClient } from "./http-client.js";
@@ -43,7 +43,7 @@ export class GSheetQLSession<
     private config: GSheetQLConfig,
     dialect: SQLiteAsyncDialect,
     private schema: RelationalSchemaConfig<TSchema> | undefined,
-		options: GSheetQLSessionOptions = {},
+    options: GSheetQLSessionOptions = {},
   ) {
     super(dialect);
     this.logger = options.logger ?? new NoopLogger();
@@ -86,7 +86,7 @@ export class GSheetQLSession<
     const preparedQuery = this.prepareQuery(
       this.dialect.sqlToQuery(query),
       undefined,
-      'run',
+      "run",
       false,
       undefined,
       undefined,
@@ -95,7 +95,7 @@ export class GSheetQLSession<
     return preparedQuery.run();
   }
 
-  async batch<T extends BatchItem<'sqlite'>[] | readonly BatchItem<'sqlite'>[]>(queries: T) {
+  async batch<T extends BatchItem<"sqlite">[] | readonly BatchItem<"sqlite">[]>(queries: T) {
     const preparedQueries: PreparedQuery[] = [];
     const statements: { sql: string; args: unknown[] }[] = [];
 
@@ -112,7 +112,7 @@ export class GSheetQLSession<
 
   override async transaction<T>(
     transaction: (tx: GSheetQLTransaction<TFullSchema, TSchema>) => Promise<T>,
-		config: SQLiteTransactionConfig = {},
+    _config: SQLiteTransactionConfig = {},
   ): Promise<T> {
     const tx = new GSheetQLTransaction("async", this.dialect, this, this.schema);
 
@@ -149,7 +149,7 @@ export class GSheetQLTransaction<
 
   override async transaction<T>(transaction: (tx: GSheetQLTransaction<TFullSchema, TSchema>) => Promise<T>): Promise<T> {
     const savepointName = `sp${this.nestedIndex}`;
-    const tx = new GSheetQLTransaction('async', this.dialect, this.session, this.schema, this.nestedIndex + 1);
+    const tx = new GSheetQLTransaction("async", this.dialect, this.session, this.schema, this.nestedIndex + 1);
     await this.session.run(sql.raw(`savepoint ${savepointName}`));
     try {
       const result = await transaction(tx);
@@ -217,10 +217,10 @@ export class PreparedQuery<T extends PreparedQueryConfig = PreparedQueryConfig> 
     }
 
     if (this.customResultMapper) {
-      return this.customResultMapper(rows as unknown[][]) as T['all'];
+      return this.customResultMapper(rows as unknown[][]) as T["all"];
     }
 
-    return (rows as unknown[]).map((row) => {
+    return (rows as unknown[]).map(row => {
       return mapResultRow(
         this.fields!,
         row as unknown[],
@@ -259,7 +259,7 @@ export class PreparedQuery<T extends PreparedQueryConfig = PreparedQueryConfig> 
     }
 
     if (this.customResultMapper) {
-      return this.customResultMapper([row as unknown[]]) as T['get'];
+      return this.customResultMapper([row as unknown[]]) as T["get"];
     }
 
     return mapResultRow(

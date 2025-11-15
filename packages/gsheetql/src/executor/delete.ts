@@ -143,7 +143,7 @@ export class DeleteExecutor {
           // Type-aware comparison: try numeric comparison first
           const leftNum = Number(leftVal);
           const rightNum = Number(rightVal);
-          if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          if (!Number.isNan(leftNum) && !Number.isNan(rightNum)) {
             return leftNum === rightNum;
           }
           return String(leftVal) === String(rightVal);
@@ -153,7 +153,7 @@ export class DeleteExecutor {
           // Type-aware comparison
           const leftNum = Number(leftVal);
           const rightNum = Number(rightVal);
-          if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          if (!Number.isNan(leftNum) && !Number.isNan(rightNum)) {
             return leftNum !== rightNum;
           }
           return String(leftVal) !== String(rightVal);
@@ -168,7 +168,7 @@ export class DeleteExecutor {
           return Number(leftVal) <= Number(rightVal);
         case "LIKE":
           return String(leftVal).includes(String(rightVal).replace(/%/g, ""));
-        case "IS":
+        case "IS": {
           const leftIsNull
             = leftVal === null || leftVal === undefined || leftVal === "";
           const rightIsNull
@@ -178,7 +178,8 @@ export class DeleteExecutor {
             return leftIsNull;
           }
           return leftVal === rightVal;
-        case "IS NOT":
+        }
+        case "IS NOT": {
           const leftIsNotNull = !(
             leftVal === null
             || leftVal === undefined

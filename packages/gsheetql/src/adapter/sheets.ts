@@ -41,7 +41,7 @@ export class SheetsAdapter {
 
       // Convert all values to strings (Google Sheets API returns mixed types)
       const stringValues = values.map((row: any[]) =>
-        row.map((val) => {
+        row.map(val => {
           if (val === null || val === undefined) {
             return "";
           }

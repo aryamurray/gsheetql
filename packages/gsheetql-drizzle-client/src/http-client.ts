@@ -50,7 +50,7 @@ export class GSheetQLHttpClient {
    */
   async execute(
     sql: string,
-		params: unknown[] = [],
+    params: unknown[] = [],
   ): Promise<{ columns: string[]; rows: unknown[][]; affectedRowCount: number; lastInsertRowId?: number }> {
     const request = {
       statements: [{ sql, args: params }],
@@ -67,6 +67,7 @@ export class GSheetQLHttpClient {
     }
 
     if (this.debug) {
+      // eslint-disable-next-line no-console
       console.log("[GSheetQL] Executing:", {
         sql: sql.substring(0, 100),
         paramCount: params.length,
@@ -99,6 +100,7 @@ export class GSheetQLHttpClient {
       const result = data.result.data.results[0];
 
       if (this.debug) {
+        // eslint-disable-next-line no-console
         console.log("[GSheetQL] Result:", {
           rowCount: result.rows.length,
           columnCount: result.columns.length,
@@ -130,13 +132,18 @@ export class GSheetQLHttpClient {
 
     // Add auth if provided
     const auth: any = {};
-    if (this.apiKey) auth.apiKey = this.apiKey;
-    if (this.googleAuthToken) auth.googleAuthToken = this.googleAuthToken;
+    if (this.apiKey) {
+      auth.apiKey = this.apiKey;
+    }
+    if (this.googleAuthToken) {
+      auth.googleAuthToken = this.googleAuthToken;
+    }
     if (Object.keys(auth).length > 0) {
       (request as any).auth = auth;
     }
 
     if (this.debug) {
+      // eslint-disable-next-line no-console
       console.log("[GSheetQL] Batch executing:", statements.length, "statements");
     }
 

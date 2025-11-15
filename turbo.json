@@ -8,29 +8,31 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**"],
-      "cache": false
+      "inputs": ["src/**/*.ts", "tsconfig.json", "package.json"]
     },
     "test": {
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"],
+      "inputs": ["src/**/*.ts", "tests/**/*.ts", "**/*.test.ts"],
       "cache": false
     },
     "lint": {
       "outputs": [],
-      "cache": false
+      "inputs": ["src/**/*.ts", "eslint.config.js", ".eslintrc*"]
     },
     "lint:critical": {
       "outputs": [],
-      "cache": false
+      "inputs": ["src/**/*.ts", "eslint.config.js", ".eslintrc*"]
     },
     "lint:fix": {
       "outputs": [],
+      "inputs": ["src/**/*.ts", "eslint.config.js", ".eslintrc*"],
       "cache": false
     },
     "type-check": {
       "dependsOn": ["^build"],
       "outputs": [],
-      "cache": false
+      "inputs": ["src/**/*.ts", "tsconfig.json"]
     },
     "push": {
       "dependsOn": ["build", "lint", "type-check"],

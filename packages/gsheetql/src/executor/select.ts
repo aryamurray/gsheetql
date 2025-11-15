@@ -126,7 +126,7 @@ export class SelectExecutor {
                 const arg = expr.args[0] as any;
                 const colName = this.getColumnName(arg.name);
                 const colIdx = headers.indexOf(colName);
-                const values = rows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                const values = rows.map(r => Number(r[colIdx])).filter(v => !Number.isNan(v));
                 aggValue = values.length > 0 ? Math.min(...values) : null;
                 break;
               }
@@ -134,7 +134,7 @@ export class SelectExecutor {
                 const arg = expr.args[0] as any;
                 const colName = this.getColumnName(arg.name);
                 const colIdx = headers.indexOf(colName);
-                const values = rows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+                const values = rows.map(r => Number(r[colIdx])).filter(v => !Number.isNan(v));
                 aggValue = values.length > 0 ? Math.max(...values) : null;
                 break;
               }
@@ -219,12 +219,14 @@ export class SelectExecutor {
             }
 
             switch (colDef.type) {
-              case "INTEGER":
+              case "INTEGER": {
                 const intVal = Number(value);
-                return !isNaN(intVal) && Number.isInteger(intVal) ? intVal : value;
-              case "REAL":
+                return !Number.isNaN(intVal) && Number.isInteger(intVal) ? intVal : value;
+              }
+              case "REAL": {
                 const floatVal = Number(value);
-                return !isNaN(floatVal) ? floatVal : value;
+                return !Number.isNaN(floatVal) ? floatVal : value;
+              }
               case "TEXT":
               case "BLOB":
               default:
@@ -285,13 +287,13 @@ export class SelectExecutor {
           case "MIN": {
             const colName = this.getColumnName(expr.args[0].name);
             const colIdx = originalHeaders.indexOf(colName);
-            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !Number.isNan(v));
             return values.length > 0 ? Math.min(...values) : null;
           }
           case "MAX": {
             const colName = this.getColumnName(expr.args[0].name);
             const colIdx = originalHeaders.indexOf(colName);
-            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+            const values = groupRows.map(r => Number(r[colIdx])).filter(v => !Number.isNan(v));
             return values.length > 0 ? Math.max(...values) : null;
           }
           default:
@@ -419,14 +421,14 @@ export class SelectExecutor {
             case "MIN": {
               const colName = this.getColumnName(expr.args[0].name);
               const colIdx = headers.indexOf(colName);
-              const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+              const values = groupRows.map(r => Number(r[colIdx])).filter(v => !Number.isNan(v));
               aggValue = values.length > 0 ? Math.min(...values) : null;
               break;
             }
             case "MAX": {
               const colName = this.getColumnName(expr.args[0].name);
               const colIdx = headers.indexOf(colName);
-              const values = groupRows.map(r => Number(r[colIdx])).filter(v => !isNaN(v));
+              const values = groupRows.map(r => Number(r[colIdx])).filter(v => !Number.isNan(v));
               aggValue = values.length > 0 ? Math.max(...values) : null;
               break;
             }
@@ -525,7 +527,7 @@ export class SelectExecutor {
           // Type-aware comparison: try numeric comparison first
           const leftNum = Number(leftVal);
           const rightNum = Number(rightVal);
-          if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          if (!Number.isNan(leftNum) && !Number.isNan(rightNum)) {
             return leftNum === rightNum;
           }
           return String(leftVal) === String(rightVal);
@@ -539,7 +541,7 @@ export class SelectExecutor {
           // Type-aware comparison
           const leftNum = Number(leftVal);
           const rightNum = Number(rightVal);
-          if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          if (!Number.isNan(leftNum) && !Number.isNan(rightNum)) {
             return leftNum !== rightNum;
           }
           return String(leftVal) !== String(rightVal);
@@ -554,7 +556,7 @@ export class SelectExecutor {
           return Number(leftVal) <= Number(rightVal);
         case "LIKE":
           return String(leftVal).includes(String(rightVal).replace(/%/g, ""));
-        case "IS":
+        case "IS": {
           // IS NULL checks for null or empty string
           // Normalize both values: null/undefined/empty-string all represent NULL
           const leftIsNull
@@ -567,7 +569,8 @@ export class SelectExecutor {
             return leftIsNull;
           }
           return leftVal === rightVal;
-        case "IS NOT":
+        }
+        case "IS NOT": {
           // IS NOT NULL checks for not null and not empty string
           const leftIsNotNull = !(
             leftVal === null
@@ -719,7 +722,7 @@ export class SelectExecutor {
         const bNum = Number(bVal);
 
         let cmp = 0;
-        if (!isNaN(aNum) && !isNaN(bNum)) {
+        if (!Number.isNan(aNum) && !Number.isNan(bNum)) {
           cmp = aNum - bNum;
         } else {
           cmp = String(aVal).localeCompare(String(bVal));
