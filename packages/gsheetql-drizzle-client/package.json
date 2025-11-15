@@ -1,0 +1,23 @@
+{
+  "name": "gsheetql-drizzle-client",
+  "type": "module",
+  "module": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "type-check": "tsc --noEmit",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.44.7",
+    "eslint": "^9.39.1",
+    "vitest": "^4.0.9"
+  }
+}
